@@ -356,11 +356,19 @@ def cmd_app(args):
     require_adb()
     serial = get_first_device()
     log("info", f"Launching app: {args.package} …")
-    rc, out, err = adb("-s", serial, "shell", "monkey", "-p", args.package, "-c", "android.intent.category.LAUNCHER", "1")
-    if rc == 0:
+    # Try am start-activity first (works on all modern Android)
+    rc, out, err = adb("-s", serial, "shell",
+        f"am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER "
+        f"-n $(cmd package resolve-activity --brief -c android.intent.category.LAUNCHER {args.package} 2>/dev/null | tail -1) 2>&1")
+    # Fallback: monkey (less reliable but widely supported)
+    if rc != 0 or "Error" in out:
+        rc, out, err = adb("-s", serial, "shell",
+            f"monkey -p {args.package} -c android.intent.category.LAUNCHER 1 2>&1")
+    if rc == 0 or "Events injected" in out or "Starting" in out:
         log("ok", f"Launched {args.package}")
     else:
-        log("err", f"Failed to launch app: {err}")
+        log("err", f"Could not launch {args.package}. Is the package name correct?")
+        log("info", "Tip: list user-installed apps with:  phonelink shell 'pm list packages -3'")
 
 def cmd_type(args):
     """Inject text into the device's current textbox."""
@@ -384,17 +392,20 @@ def cmd_metrics(args):
             k, v = line.split(":", 1)
             bat_data[k.strip()] = v.strip()
     
-    # temperature can be returned in tenths of a degree
+    # temperature is returned in tenths of a degree (e.g. 399 = 39.9°C)
     temp_c = float(bat_data.get('temperature', 0)) / 10.0
-    level = int(bat_data.get('level', 0))
-    status = bat_data.get('status', 'unknown')
-    
+    level  = int(bat_data.get('level', 0))
+    # Map numeric Android BatteryStatus constants to readable strings
+    status_map = {'1': 'unknown', '2': 'charging', '3': 'discharging',
+                  '4': 'not charging', '5': 'full'}
+    status_str = status_map.get(bat_data.get('status', '1'), 'unknown')
+
     metrics = {
         "status": "success",
         "device": serial,
         "battery_level_pct": level,
         "battery_temp_c": temp_c,
-        "charging_status": status
+        "charging_status": status_str
     }
     print(json.dumps(metrics, indent=2))
 
@@ -428,35 +439,48 @@ def cmd_net(args):
         print("\nOnce installed, re-run: phonelink net")
 
 def cmd_wifi(args):
-    """Pair over Wi-Fi so USB can be disconnected."""
+    """Pair over Wi-Fi / network so USB can be disconnected."""
     require_adb()
     serial = get_first_device()
     log("info", f"Restarting ADB in TCP/IP mode on {serial} …")
     rc, out, err = adb("-s", serial, "tcpip", "5555")
     if rc != 0:
         log("err", f"Failed to set tcpip mode: {err}"); sys.exit(1)
-    
+
     time.sleep(2)
-    # Get IP address
+
+    # Scan ALL interfaces via ip route (works for Wi-Fi, Mobile Data, hotspot)
     rc, out, err = adb("-s", serial, "shell", "ip route")
     ip = None
+    preferred_prefixes = ('192.168.', '10.', '172.')  # common private IP ranges
     for line in out.splitlines():
-        if "wlan0" in line and "src " in line:
-            parts = line.split("src ")
-            if len(parts) > 1:
-                ip_part = parts[1].split()[0]
-                ip = ip_part.strip()
-                break
-    
+        if 'src ' in line:
+            candidate = line.split('src ')[-1].split()[0].strip()
+            if not candidate.startswith('127.') and not candidate.startswith('169.254.'):
+                ip = candidate
+                # Prefer private LAN addresses (Wi-Fi) over mobile data IPs
+                if any(candidate.startswith(p) for p in preferred_prefixes):
+                    break
+
+    # Fallback: parse ip addr show
     if not ip:
-         log("err", "Could not find phone's Wi-Fi IP address. Is it connected to Wi-Fi?")
-         sys.exit(1)
-         
+        rc2, out2, _ = adb("-s", serial, "shell", "ip addr")
+        for line in out2.splitlines():
+            if 'inet ' in line and '127.0.0.1' not in line and '169.254' not in line:
+                parts = line.strip().split()
+                if len(parts) >= 2:
+                    ip = parts[1].split('/')[0]
+                    break
+
+    if not ip:
+        log("err", "Could not detect phone IP. Ensure Wi-Fi or mobile data is on.")
+        sys.exit(1)
+
     log("ok", f"Phone IP detected: {G}{ip}{RST}")
-    log("info", f"Connecting via Wi-Fi …")
+    log("info", "Connecting via network …")
     rc, out, err = adb("connect", f"{ip}:5555")
     if "connected" in out.lower() or rc == 0:
-        log("ok", f"Connected via Wi-Fi to {ip}:5555")
+        log("ok", f"{G}Connected to {ip}:5555{RST}")
         log("info", f"{Y}You can now safely unplug the USB cable!{RST}")
     else:
         log("err", f"Failed to connect: {out} {err}")
