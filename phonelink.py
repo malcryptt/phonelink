@@ -772,6 +772,9 @@ def main():
     p_sync.add_argument("src", help="Local file or folder to monitor")
     p_sync.add_argument("dst", help="Destination path on device")
 
+    # help
+    sub.add_parser("help", help="Show this help message")
+
     args = parser.parse_args()
 
     dispatch = {
@@ -794,7 +797,10 @@ def main():
         "sync":    cmd_sync,
     }
 
-    if args.cmd in dispatch:
+    if args.cmd == "help":
+        print(LOGO)
+        parser.print_help()
+    elif args.cmd in dispatch:
         dispatch[args.cmd](args)
     else:
         print(LOGO)
