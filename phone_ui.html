@@ -392,6 +392,83 @@
       transform: scale(0.9);
     }
 
+    /* ── App Drawer & Gallery Modals ────────────────── */
+    #app-modal,
+    #gallery-modal {
+      position: fixed;
+      inset: 0;
+      background: var(--bg);
+      z-index: 9999;
+      display: none;
+      flex-direction: column;
+      padding: 24px;
+      overflow-y: auto;
+      color: var(--text);
+    }
+
+    .modal-hdr {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .modal-hdr h2 {
+      color: var(--green);
+      margin: 0;
+    }
+
+    .app-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .app-name {
+      font-size: 13px;
+      font-weight: bold;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 60%;
+    }
+
+    .app-actions button {
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: bold;
+      border: none;
+      cursor: pointer;
+      margin-left: 6px;
+    }
+
+    .app-btn-launch {
+      background: var(--accent);
+      color: white;
+    }
+
+    .app-btn-kill {
+      background: var(--red);
+      color: white;
+    }
+
+    .gallery-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+
+    .gallery-grid img {
+      width: 100%;
+      border-radius: 8px;
+      object-fit: cover;
+      aspect-ratio: 1;
+      border: 1px solid var(--border);
+    }
+
     /* ── Dividers ───────────────────────────────────── */
     hr {
       border: none;
@@ -651,6 +728,33 @@
       </div>
     </div>
 
+    <!-- ──────────── OS DASHBOARD: APPS & GALLERY ──────────── -->
+    <div class="section-title">Desktop OS Dashboard</div>
+    <div class="grid">
+      <div class="cmd" data-color="cyan" onclick="openAppDrawer()">
+        <div class="cmd-icon">📱</div>
+        <div class="cmd-name">App Drawer</div>
+        <div class="cmd-desc">List & Control Apps</div>
+      </div>
+      <div class="cmd" data-color="yellow" onclick="openGallery()">
+        <div class="cmd-icon">🖼️</div>
+        <div class="cmd-name">Media Gallery</div>
+        <div class="cmd-desc">View Live DCIM</div>
+      </div>
+    </div>
+
+    <!-- ──────────── PORT FORWARDING ──────────── -->
+    <div class="section-title">Mesh Port Forwarding</div>
+    <div
+      style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;display:flex;gap:10px;">
+      <input type="number" id="fwd-local" placeholder="Local: 8080"
+        style="width:40%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px;font-size:14px;" />
+      <input type="number" id="fwd-remote" placeholder="Remote: 8000"
+        style="width:40%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px;font-size:14px;" />
+      <button onclick="sendForward()"
+        style="flex:1;background:var(--purple);color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;">Forward</button>
+    </div>
+
     <!-- ──────────── SMS ──────────── -->
     <div class="section-title">Send SMS</div>
     <div
@@ -713,6 +817,11 @@
 
   </main>
 
+  <!-- ──────────── TERMINAL WINDOW ──────────── -->
+  <div class="section-title">Live Terminal Output</div>
+  <pre id="term-output"
+    style="background:#0a0a0f; border:1px solid var(--border); border-radius:10px; padding:12px; font-family:monospace; font-size:12px; color:#a3e635; height:150px; overflow-y:auto; white-space:pre-wrap; margin-bottom: 20px;">[phonelink] Ready.</pre>
+
   <div id="manual-modal">
     <button class="close-btn" onclick="document.getElementById('manual-modal').style.display='none'">Close
       Manual</button>
@@ -723,40 +832,103 @@
     <h3>🔗 Connections</h3>
     <p><strong>Wi-Fi Pair:</strong> Click the Wi-Fi Pair button to enable wireless ADB. Once you unplug your USB, simply
       ensure the laptop IP is set at the top, and all controls will run wirelessly.</p>
+    <div class="manual-code"
+      style="font-family:monospace; font-size:12px; background:var(--card); padding:8px; border-radius:6px; color:var(--cyan); margin-bottom:12px;">
+      > phonelink wifi</div>
+
     <p><strong>Fix ADB:</strong> Click the little wrench if things get stuck. It kills the background ADB servers and
       restarts them automatically.</p>
-    <div class="manual-code">Terminal alternative: phonelink fix</div>
+    <div class="manual-code"
+      style="font-family:monospace; font-size:12px; background:var(--card); padding:8px; border-radius:6px; color:var(--cyan); margin-bottom:12px;">
+      > phonelink fix</div>
 
     <h3>☎️ Calls & audio</h3>
     <p><strong>Hear on PC:</strong> Next-gen feature! When your phone rings, press Answer, then press <strong>Hear on
         PC</strong>. This magically tunnels your phone’s speaker output and microphone directly through your laptop. You
       can leave the phone in the other room and just talk through your laptop.</p>
+    <div class="manual-code"
+      style="font-family:monospace; font-size:12px; background:var(--card); padding:8px; border-radius:6px; color:var(--cyan); margin-bottom:12px;">
+      > phonelink call audio</div>
+
     <p><strong>Call Guard:</strong> By typing <code>phonelink guard</code> in your terminal, your laptop will quietly
       watch your phone. If anyone calls, your laptop pops up a notification and auto-screenshots the caller ID to your
       desktop.</p>
+    <div class="manual-code"
+      style="font-family:monospace; font-size:12px; background:var(--card); padding:8px; border-radius:6px; color:var(--cyan); margin-bottom:12px;">
+      > phonelink guard</div>
 
     <h3>💬 SMS & Typing</h3>
     <p><strong>Universal Type:</strong> The text injection field acts as a magic keyboard. Select a text input on your
       phone screen, type here, and press inject to instantly paste long passwords or URLs.</p>
+    <div class="manual-code"
+      style="font-family:monospace; font-size:12px; background:var(--card); padding:8px; border-radius:6px; color:var(--cyan); margin-bottom:12px;">
+      > phonelink type "Hello World"</div>
+
     <p><strong>URL Opener:</strong> Paste any link and hit open. PhoneLink forces Android to open it in Chrome/YouTube
       seamlessly.</p>
+    <div class="manual-code"
+      style="font-family:monospace; font-size:12px; background:var(--card); padding:8px; border-radius:6px; color:var(--cyan); margin-bottom:12px;">
+      > adb shell am start -a android.intent.action.VIEW -d https://...</div>
+
     <p><strong>Inbox Explorer:</strong> Dumps your recent text messages straight into the laptop terminal. Perfect if
       you’re waiting for a 2FA code and don't want to dig out the phone.</p>
+    <div class="manual-code"
+      style="font-family:monospace; font-size:12px; background:var(--card); padding:8px; border-radius:6px; color:var(--cyan); margin-bottom:12px;">
+      > phonelink inbox</div>
 
     <h3>💡 Flashlight & Media</h3>
     <p>Did you drop a coin under the couch? Use the <strong>Flash ON / Flash OFF</strong> buttons to turn your phone
       into a remote control lantern. The Volume controls easily adjust playback entirely from your web UI.</p>
+    <div class="manual-code"
+      style="font-family:monospace; font-size:12px; background:var(--card); padding:8px; border-radius:6px; color:var(--cyan); margin-bottom:12px;">
+      > phonelink shell cmd statusbar expand-settings</div>
 
     <h3>🎛️ Power Management</h3>
     <p>Full bidirectional control. If your phone battery is dying, you can remotely shut it off from here. If you are
       sitting on the couch and want to shut down your laptop, you can literally tap <strong>Shutdown Laptop</strong>
       right from this HTML page on your phone browser!</p>
+    <div class="manual-code"
+      style="font-family:monospace; font-size:12px; background:var(--card); padding:8px; border-radius:6px; color:var(--cyan); margin-bottom:12px;">
+      > phonelink power reboot / phonelink power shutdown</div>
+
+    <h3>💻 Desktop Dashboard Additions</h3>
+    <p><strong>Terminal:</strong> Captures all CLI outputs from the laptop execution automatically.</p>
+    <p><strong>App Drawer:</strong> Lists and manages installed apps dynamically.</p>
+    <div class="manual-code"
+      style="font-family:monospace; font-size:12px; background:var(--card); padding:8px; border-radius:6px; color:var(--cyan); margin-bottom:12px;">
+      > phonelink app com.android.chrome</div>
+    <p><strong>Gallery:</strong> Pulls the newest camera photos from internal storage to view remotely.</p>
+    <div class="manual-code"
+      style="font-family:monospace; font-size:12px; background:var(--card); padding:8px; border-radius:6px; color:var(--cyan); margin-bottom:12px;">
+      > phonelink pull /sdcard/DCIM/Camera</div>
+    <p><strong>Port Forwarding:</strong> Sets up TCP port bridges over adb for mesh networking.</p>
+    <div class="manual-code"
+      style="font-family:monospace; font-size:12px; background:var(--card); padding:8px; border-radius:6px; color:var(--cyan); margin-bottom:12px;">
+      > phonelink forward 8080 8000</div>
 
     <p style="margin-top: 20px; font-size: 12px; text-align: center; color: var(--muted);">v1.0.0 — Authored in Terminal
     </p>
   </div>
 
   <div id="toast"></div>
+
+  <!-- App Drawer Modal -->
+  <div id="app-modal">
+    <div class="modal-hdr">
+      <h2>📱 App Drawer</h2>
+      <button class="close-btn" onclick="document.getElementById('app-modal').style.display='none'">Close</button>
+    </div>
+    <div id="app-list">Loading apps...</div>
+  </div>
+
+  <!-- Gallery Modal -->
+  <div id="gallery-modal">
+    <div class="modal-hdr">
+      <h2>🖼️ DCIM Gallery</h2>
+      <button class="close-btn" onclick="document.getElementById('gallery-modal').style.display='none'">Close</button>
+    </div>
+    <div id="gallery-grid" class="gallery-grid">Loading...</div>
+  </div>
 
   <script>
     // ── Storage ─────────────────────────────────────────
@@ -813,15 +985,69 @@
       toast._t = setTimeout(() => t.style.display = 'none', ms);
     }
 
+    // ── Terminal Output ──────────────────────────────────
+    function logTerm(msg) {
+      const t = document.getElementById('term-output');
+      if (t) {
+        t.innerHTML += '\n' + msg;
+        t.scrollTop = t.scrollHeight;
+      }
+    }
+
     // ── Generic command sender ───────────────────────────
     async function sendCmd(path) {
       if (!serverBase) { toast('⚠️ Enter laptop IP first!'); return; }
       toast('⏳ Sending: ' + path.split('/').pop() + '…');
+      logTerm('> phonelink ' + path);
       try {
         const r = await fetch(serverBase + '/' + path, { signal: AbortSignal.timeout(8000) });
         const txt = await r.text();
         toast(r.ok ? '✅ Done!' : '❌ ' + txt);
-      } catch (e) { toast('❌ ' + e.message); }
+        logTerm(txt);
+      } catch (e) { toast('❌ ' + e.message); logTerm('! ' + e.message); }
+    }
+
+    // ── Setup OS Components ──────────────────────────────
+    async function openAppDrawer() {
+      if (!serverBase) { toast('Set laptop IP first!'); return; }
+      document.getElementById('app-modal').style.display = 'flex';
+      document.getElementById('app-list').innerHTML = 'Fetching packages...';
+      try {
+        const r = await fetch(serverBase + '/apps');
+        const d = await r.json();
+        let html = '';
+        d.apps.forEach(pkg => {
+          html += `<div class="app-row">
+            <div class="app-name">${pkg}</div>
+            <div class="app-actions">
+              <button class="app-btn-launch" onclick="sendCmd('app/launch/${pkg}')">Launch</button>
+              <button class="app-btn-kill" onclick="sendCmd('app/kill/${pkg}')">Kill</button>
+            </div></div>`;
+        });
+        document.getElementById('app-list').innerHTML = html;
+      } catch (e) { document.getElementById('app-list').innerHTML = 'Failed to load apps.'; }
+    }
+
+    async function openGallery() {
+      if (!serverBase) { toast('Set laptop IP first!'); return; }
+      document.getElementById('gallery-modal').style.display = 'flex';
+      document.getElementById('gallery-grid').innerHTML = 'Loading images...';
+      try {
+        const r = await fetch(serverBase + '/gallery/list');
+        const d = await r.json();
+        let html = '';
+        d.files.forEach(f => {
+          html += `<a href="${serverBase}/gallery/img/${f}" target="_blank"><img src="${serverBase}/gallery/img/${f}" loading="lazy"></a>`;
+        });
+        document.getElementById('gallery-grid').innerHTML = html;
+      } catch (e) { document.getElementById('gallery-grid').innerHTML = 'Failed to load gallery.'; }
+    }
+
+    function sendForward() {
+      const l = document.getElementById('fwd-local').value.trim();
+      const r = document.getElementById('fwd-remote').value.trim();
+      if (!l || !r) { toast('Fill both ports'); return; }
+      sendCmd(`forward/${l}/${r}`);
     }
 
     // ── Type injection ───────────────────────────────────

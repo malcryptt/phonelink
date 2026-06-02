@@ -901,11 +901,74 @@ def cmd_web(args):
                     self.send_json({"device": serial, "model": model.strip(), "android": android.strip()})
 
                 # ── App launch ─────────────────────────────────────
+                # ── Apps ───────────────────────────────────────────
+                elif path == "/apps":
+                    rc, out, _ = adb("-s", serial, "shell", "pm list packages -3")
+                    if rc == 0:
+                        # format: package:com.android.chrome
+                        pkgs = [line.replace("package:", "").strip() for line in out.splitlines() if line.strip()]
+                        self.send_json({"apps": sorted(pkgs)})
+                    else:
+                        self.send_json({"error": "Failed to list packages"})
+
+                elif len(parts) >= 3 and parts[0] == "app" and parts[1] == "launch":
+                    pkg = parts[2]
+                    adb("-s", serial, "shell", f"am start {pkg}")
+                    self.send_text(f"OK: launched {pkg}")
+
+                elif len(parts) >= 3 and parts[0] == "app" and parts[1] == "kill":
+                    pkg = parts[2]
+                    adb("-s", serial, "shell", f"am force-stop {pkg}")
+                    self.send_text(f"OK: killed {pkg}")
+
+                # Legacy fallback launch
                 elif len(parts) >= 2 and parts[0] == "app":
                     pkg = parts[1]
-                    adb("-s", serial, "shell",
-                        f"monkey -p {pkg} -c android.intent.category.LAUNCHER 1 2>&1")
+                    adb("-s", serial, "shell", f"monkey -p {pkg} -c android.intent.category.LAUNCHER 1 2>&1")
                     self.send_text(f"OK: launched {pkg}")
+
+                # ── Gallery ────────────────────────────────────────
+                elif path == "/gallery/list":
+                    rc, out, _ = adb("-s", serial, "shell", "ls -t /sdcard/DCIM/Camera | head -n 12")
+                    if rc == 0:
+                        files = [line.strip() for line in out.splitlines() if line.strip() and line.strip().lower().endswith(('.jpg', '.png'))]
+                        self.send_json({"files": files})
+                    else:
+                        self.send_json({"error": "Failed to list gallery"})
+
+                elif len(parts) >= 3 and parts[0] == "gallery" and parts[1] == "img":
+                    fname = urllib.parse.unquote_plus(parts[2])
+                    local_dir = Path("/tmp/phonelink_gallery")
+                    local_dir.mkdir(parents=True, exist_ok=True)
+                    local_file = local_dir / fname
+                    
+                    # Pull only if not cached
+                    if not local_file.exists():
+                        rc, _, _ = adb("-s", serial, "pull", f"/sdcard/DCIM/Camera/{fname}", str(local_file))
+
+                    if local_file.exists():
+                        try:
+                            file_data = local_file.read_bytes()
+                            self.send_response(200)
+                            if fname.lower().endswith(".png"):
+                                self.send_header('Content-type', 'image/png')
+                            else:
+                                self.send_header('Content-type', 'image/jpeg')
+                            self.send_header('Content-length', str(len(file_data)))
+                            self.end_headers()
+                            self.wfile.write(file_data)
+                            return
+                        except Exception:
+                            self.send_text("Error reading local gallery image", 500)
+                    else:
+                        self.send_text("Image failed to pull", 404)
+
+                # ── Forward ────────────────────────────────────────
+                elif len(parts) >= 3 and parts[0] == "forward":
+                    local = parts[1]
+                    remote = urllib.parse.unquote_plus(parts[2])
+                    subprocess.Popen(["phonelink", "forward", local, remote], start_new_session=True)
+                    self.send_text(f"OK: port {local} forwarded to {remote}")
 
                 # ── Type injection ─────────────────────────────────
                 elif len(parts) >= 2 and parts[0] == "type":
