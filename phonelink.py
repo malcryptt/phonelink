@@ -590,7 +590,7 @@ def cmd_clip(args):
              log("err", "Clipboard pull requires root or helper app on Android 10+.")
 
 def cmd_call(args):
-    """Control phone calls (answer, decline, end, mute)."""
+    """Control phone calls (answer, decline, end, mute) or route audio."""
     require_adb()
     serial = get_first_device()
     action = args.action
@@ -600,12 +600,160 @@ def cmd_call(args):
         "end":     "6",   # KEYCODE_ENDCALL
         "mute":    "164", # KEYCODE_VOLUME_MUTE
     }
+    if action == "audio":
+        # Route phone audio (mic + playback) to laptop via scrcpy
+        # scrcpy 2+ supports --no-video --audio-source=mic/playback
+        log("info", "Routing phone audio to laptop speakers/mic via scrcpy …")
+        log("info", f"Phone mic → laptop speakers | Laptop mic → phone mic")
+        log("wait", "Connecting audio stream (press Ctrl+C to stop) …")
+        try:
+            subprocess.run(
+                ["scrcpy", "-s", serial,
+                 "--no-video",
+                 "--audio-source=playback",   # stream phone's speaker output
+                 "--audio-codec=opus",
+                ],
+                check=False
+            )
+        except FileNotFoundError:
+            log("err", "scrcpy not found. Install it: sudo apt install scrcpy")
+        return
+
     if action not in KEYCODES:
-        log("err", f"Unknown call action: {action}. Use: answer, decline, end, mute")
+        log("err", f"Unknown call action: {action}. Use: answer, decline, end, mute, audio")
         sys.exit(1)
     log("info", f"Call action: {action} …")
     adb("-s", serial, "shell", f"input keyevent {KEYCODES[action]}")
     log("ok", f"Done: {action}")
+    # After answering, immediately offer to route audio
+    if action == "answer":
+        log("info", f"Tip: run  {G}phonelink call audio{RST}  to hear the call on your laptop speakers")
+
+def cmd_notify(args):
+    """Watch battery level and send desktop notifications."""
+    require_adb()
+    serial = get_first_device()
+    threshold = args.threshold
+    interval  = args.interval
+    log("info", f"Battery monitor started (alert when < {threshold}%, check every {interval}s)")
+    log("wait", "Press Ctrl+C to stop …\n")
+    last_notified = None
+    try:
+        while True:
+            rc, out, _ = adb("-s", serial, "shell", "dumpsys battery | grep level")
+            try:
+                level = int(out.replace("level:", "").strip())
+            except ValueError:
+                time.sleep(interval); continue
+
+            rc2, charge_out, _ = adb("-s", serial, "shell", "dumpsys battery | grep status")
+            status_map = {"1":"unknown","2":"charging","3":"discharging","4":"not charging","5":"full"}
+            status_raw = charge_out.replace("status:", "").strip()
+            status = status_map.get(status_raw, status_raw)
+
+            log("info", f"Battery: {level}%  ({status})")
+
+            # Notify when below threshold and not charging
+            if level <= threshold and status not in ("charging", "full"):
+                if last_notified != level:
+                    last_notified = level
+                    urgency = "critical" if level <= 10 else "normal"
+                    subprocess.run([
+                        "notify-send",
+                        "-u", urgency,
+                        "-i", "battery-caution",
+                        "PhoneLink: Low Battery",
+                        f"Phone battery is at {level}% ({status})"
+                    ], check=False)
+                    log("ok", f"Desktop notification sent: {level}%")
+            else:
+                last_notified = None  # reset so it re-notifies if drops again
+
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        log("info", "Battery monitor stopped.")
+
+def cmd_sms_inbox(args):
+    """Read recent SMS messages from the phone."""
+    require_adb()
+    serial = get_first_device()
+    count = args.count
+    log("info", f"Reading last {count} SMS messages …")
+    # Query the SMS content provider (works without root on most devices)
+    query = (
+        "content query --uri content://sms/inbox "
+        f"--projection address:date:body --sort 'date DESC' --limit {count}"
+    )
+    rc, out, err = adb("-s", serial, "shell", query)
+    if rc != 0 or not out.strip():
+        log("err", "Could not read SMS inbox. Some devices restrict this without root.")
+        log("info", "Tip: try enabling USB debugging + 'adb backup' permissions in developer options.")
+        return
+    rows = out.strip().split("Row:")
+    print()
+    for row in rows:
+        if not row.strip(): continue
+        parts = {}
+        for segment in row.split(","):
+            if "=" in segment:
+                k, _, v = segment.partition("=")
+                parts[k.strip()] = v.strip()
+        addr = parts.get("address", "Unknown")
+        body = parts.get("body", "(no body)")
+        date_ms = parts.get("date", "0")
+        try:
+            import datetime
+            dt = datetime.datetime.fromtimestamp(int(date_ms) / 1000)
+            date_str = dt.strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            date_str = date_ms
+        print(f"  {C}{addr}{RST}  {Y}{date_str}{RST}")
+        print(f"  {body}")
+        print()
+
+def cmd_guard(args):
+    """Incoming call guard: desktop notification + auto-screenshot on every call."""
+    require_adb()
+    serial = get_first_device()
+    log("info", "Call guard started — watching for incoming calls …")
+    log("wait", "Press Ctrl+C to stop …\n")
+    was_ringing = False
+    try:
+        while True:
+            rc, out, _ = adb("-s", serial, "shell",
+                             "dumpsys telephony.registry | grep mCallState")
+            ringing = "1" in out
+            if ringing and not was_ringing:
+                was_ringing = True
+                # Get incoming number
+                rc2, numout, _ = adb("-s", serial, "shell",
+                    "dumpsys telephony.registry | grep mCallIncomingNumber")
+                number = numout.split("=")[-1].strip() if "=" in numout else "Unknown"
+                log("ok", f"Incoming call from: {G}{number}{RST}")
+
+                # Desktop notification
+                subprocess.run([
+                    "notify-send", "-u", "critical", "-i", "call-start",
+                    f"📞 Incoming Call: {number}",
+                    "phonelink call answer  |  phonelink call decline"
+                ], check=False)
+
+                # Auto-screenshot of the phone screen
+                if args.screenshot:
+                    ts = int(time.time())
+                    remote = f"/sdcard/guard_shot_{ts}.png"
+                    local  = Path.home() / f"phonelink_call_{ts}.png"
+                    adb("-s", serial, "shell", f"screencap -p {remote}")
+                    adb("-s", serial, "pull", remote, str(local))
+                    adb("-s", serial, "shell", f"rm {remote}")
+                    log("ok", f"Auto-screenshot saved: {local}")
+
+            elif not ringing:
+                was_ringing = False
+
+            time.sleep(2)
+    except KeyboardInterrupt:
+        log("info", "Guard stopped.")
 
 def cmd_web(args):
     """Full REST API + Phone UI server for wireless control."""
@@ -1135,8 +1283,27 @@ def main():
     p_clip.add_argument("action", choices=["push", "pull"], help="Action to perform")
     p_clip.add_argument("text", nargs="?", default="", help="Text to push (if action is push)")
 
+    # call
+    p_call = sub.add_parser("call", help="Control phone calls or route audio")
+    p_call.add_argument("action", choices=["answer", "decline", "end", "mute", "audio"],
+                        help="answer/decline/end/mute a call, or 'audio' to stream phone audio to laptop")
+
+    # notify
+    p_notify = sub.add_parser("notify", help="Battery monitor with desktop notifications")
+    p_notify.add_argument("--threshold", type=int, default=20, help="Alert below this % (default: 20)")
+    p_notify.add_argument("--interval", type=int, default=60, help="Check interval in seconds (default: 60)")
+
+    # sms-inbox
+    p_sms_inbox = sub.add_parser("inbox", help="Read recent SMS messages from phone")
+    p_sms_inbox.add_argument("--count", type=int, default=10, help="Number of messages to show (default: 10)")
+
+    # guard
+    p_guard = sub.add_parser("guard", help="Watch for calls and send desktop notification")
+    p_guard.add_argument("--screenshot", action="store_true", default=True,
+                         help="Auto-screenshot on every call (default: on)")
+
     # web
-    p_web = sub.add_parser("web", help="Start localhost web dashboard")
+    p_web = sub.add_parser("web", help="Start full REST API + phone HTML panel")
     p_web.add_argument("--port", type=int, default=8000, help="Port to run the dashboard on (default: 8000)")
 
     # macro
@@ -1168,6 +1335,10 @@ def main():
         "wifi":    cmd_wifi,
         "logs":    cmd_logs,
         "sync":    cmd_sync,
+        "call":    cmd_call,
+        "notify":  cmd_notify,
+        "inbox":   cmd_sms_inbox,
+        "guard":   cmd_guard,
         "sms":     cmd_sms,
         "clip":    cmd_clip,
         "web":     cmd_web,
