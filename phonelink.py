@@ -1219,6 +1219,97 @@ def cmd_status(args):
 
 # ─────────────────────────── CLI ─────────────────────────────────────
 
+def cmd_clip_sync(args):
+    """Run a hidden scrcpy instance strictly for bidirectional clipboard syncing."""
+    require_adb()
+    serial = get_first_device()
+    log("info", f"Starting seamless clipboard sync using hidden scrcpy instance…")
+    log("info", f"Any text copied on laptop will magically sync to phone, and vice-versa. (Ctrl+C to stop)")
+    try:
+        subprocess.run(
+            ["scrcpy", "-s", serial, "--no-video", "--no-audio", "--no-key-inject", "--no-mouse-inject", "--window-title", "PhoneLink Sync"],
+            check=False
+        )
+    except KeyboardInterrupt:
+        log("ok", "Clipboard sync stopped.")
+
+def cmd_cam(args):
+    """Silently open camera, click volume down to snap, and pull image."""
+    require_adb()
+    serial = get_first_device()
+    log("wait", "Hijacking camera…")
+    
+    adb("-s", serial, "shell", "am start -a android.media.action.STILL_IMAGE_CAMERA")
+    time.sleep(1.5)
+    
+    log("wait", "Snapping photo (simulating Vol Down)…")
+    adb("-s", serial, "shell", "input keyevent 25")
+    time.sleep(2.0)
+    
+    adb("-s", serial, "shell", "input keyevent 3")
+    
+    log("wait", "Pulling latest photo from DCIM…")
+    rc, out, _ = adb("-s", serial, "shell", "ls -t /sdcard/DCIM/Camera | head -n 1")
+    if not out.strip():
+        log("err", "Could not find a recent photo in /sdcard/DCIM/Camera")
+        return
+    
+    newest = out.strip()
+    remote_path = f"/sdcard/DCIM/Camera/{newest}"
+    ts = int(time.time())
+    local = f"phonelink_cam_{ts}.jpg"
+    rc, pull_out, pull_err = adb("-s", serial, "pull", remote_path, local)
+    
+    if "error" not in pull_err.lower():
+        log("ok", f"Photo secured: {local}")
+        log("wait", "Erasing traces on phone…")
+        adb("-s", serial, "shell", f"rm \"{remote_path}\"")
+        log("ok", "Trace erased.")
+    else:
+        log("err", "Failed to pull photo.")
+
+def cmd_macro_rec(args):
+    """Generate a Python automation skeleton script."""
+    skeleton = '''#!/usr/bin/env python3
+"""
+PhoneLink Python Automation Bot
+Run this script to command the phone programmatically.
+"""
+import subprocess
+import time
+
+def phonelink(*args):
+    """Run a phonelink command and wait."""
+    print(f"[*] Executing: phonelink {' '.join(args)}")
+    subprocess.run(["phonelink"] + list(args))
+
+def bot():
+    # 1. Wake the phone
+    phonelink("wake")
+    time.sleep(1)
+
+    # 2. Open an app
+    phonelink("app", "com.android.chrome")
+    time.sleep(2)
+
+    # 3. Simulate taps (X, Y)
+    # phonelink("shell", "input tap 500 1000")
+    
+    # 4. Inject text
+    # phonelink("type", "hello world")
+    
+    print("[✓] Bot finished!")
+
+if __name__ == "__main__":
+    bot()
+'''
+    import os
+    Path(args.out).write_text(skeleton)
+    os.chmod(args.out, 0o755)
+    log("ok", f"Generated macro skeleton: {args.out}")
+    log("info", f"You can now edit it and run:  ./{args.out}")
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="phonelink",
@@ -1383,6 +1474,16 @@ def main():
     # help
     sub.add_parser("help", help="Show this help message")
 
+    # clip-sync
+    p_clip_sync = sub.add_parser("clip-sync", help="Continuous bidirectional clipboard sync (hidden scrcpy)")
+
+    # cam
+    p_cam = sub.add_parser("cam", help="Silent camera hijacker: snapshot and pull")
+
+    # macro-rec
+    p_macro_rec = sub.add_parser("macro-rec", help="Generate a Python boilerplate automation skeleton")
+    p_macro_rec.add_argument("--out", "-o", default="bot.py", help="Output file name (default: bot.py)")
+
     args = parser.parse_args()
 
     dispatch = {
@@ -1410,6 +1511,9 @@ def main():
         "power":   cmd_power,
         "sms":     cmd_sms,
         "clip":    cmd_clip,
+        "clip-sync": cmd_clip_sync,
+        "cam":     cmd_cam,
+        "macro-rec": cmd_macro_rec,
         "web":     cmd_web,
         "macro":   cmd_macro,
     }
