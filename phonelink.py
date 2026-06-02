@@ -920,6 +920,12 @@ def cmd_web(args):
                     rc, out, err = adb("-s", serial, "shell", cmd)
                     self.send_text(out or err)
 
+                # ── URL Opener ─────────────────────────────────────
+                elif len(parts) >= 2 and parts[0] == "url":
+                    url = urllib.parse.unquote_plus("/".join(parts[1:]))
+                    adb("-s", serial, "shell", f"am start -a android.intent.action.VIEW -d '{url}'")
+                    self.send_text(f"OK: opened url")
+
                 # ── SMS ────────────────────────────────────────────
                 elif len(parts) >= 3 and parts[0] == "sms":
                     phone = urllib.parse.unquote_plus(parts[1])
@@ -939,6 +945,19 @@ def cmd_web(args):
                 elif path == "/call_audio":
                     subprocess.Popen(["phonelink", "call", "audio"], start_new_session=True)
                     self.send_text("OK: streaming call audio to laptop")
+
+                # ── Volume Control ─────────────────────────────────
+                elif path in ("/volume/up", "/volume/down", "/volume/mute"):
+                    kmap = {"/volume/up": 24, "/volume/down": 25, "/volume/mute": 164}
+                    adb("-s", serial, "shell", f"input keyevent {kmap[path]}")
+                    self.send_text(f"OK: {path[1:]}")
+
+                # ── Flashlight ─────────────────────────────────────
+                elif path in ("/flash/on", "/flash/off"):
+                    on = "true" if path == "/flash/on" else "false"
+                    # Try Android 10+ standard way:
+                    adb("-s", serial, "shell", f"cmd media.camera setTorchMode 0 {on}")
+                    self.send_text(f"OK: flashlight {on}")
 
                 # ── Inbox ──────────────────────────────────────────
                 elif path == "/inbox":
