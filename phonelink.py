@@ -589,70 +589,228 @@ def cmd_clip(args):
         else:
              log("err", "Clipboard pull requires root or helper app on Android 10+.")
 
-def cmd_web(args):
-    """Localhost Web Dashboard for headless control."""
+def cmd_call(args):
+    """Control phone calls (answer, decline, end, mute)."""
     require_adb()
     serial = get_first_device()
-    port = args.port
-    log("info", f"Starting Web Dashboard on http://localhost:{port}")
-    log("info", f"Features: Screen mirror widget, Battery metrics, and Quick App launcher.")
-    log("wait", "Generating dashboard HTML …")
-    
-    html = f"""<!DOCTYPE html>
-<html>
-<head><title>PhoneLink Dashboard</title>
-<style>
-body {{ font-family: sans-serif; background: #121212; color: #fff; padding: 20px; text-align: center; }}
-.btn {{ background: #007bff; color: white; padding: 15px 30px; border: none; border-radius: 5px; margin: 10px; cursor: pointer; font-size: 16px; }}
-.btn:hover {{ background: #0056b3; }}
-</style>
-</head>
-<body>
-<h1>📱 PhoneLink Web Dashboard</h1>
-<p>Device: {serial}</p>
-<hr>
-<h3>Quick Actions</h3>
-<button class="btn" onclick="fetch('/app/com.android.chrome')">Launch Chrome</button>
-<button class="btn" onclick="fetch('/app/com.google.android.youtube')">Launch YouTube</button>
-<button class="btn" onclick="fetch('/wake')">Wake Screen</button>
-<button class="btn" onclick="fetch('/screen')">Open Mirroring Window</button>
-<p><small>(This is a local Python demo server for IoT headless control)</small></p>
-<script>
-// Dashboard logic would poll the Python server here...
-</script>
-</body>
-</html>
-"""
-    with open('/tmp/phonelink_dash.html', 'w') as f:
-        f.write(html)
-        
-    print(f"      {G}Server running!{RST} Open {C}http://localhost:{port}{RST} (Demo mode UI)")
-    print(f"      To fully run this server, we would boot standard http.server handling adb calls.")
-    
+    action = args.action
+    KEYCODES = {
+        "answer":  "5",   # KEYCODE_CALL
+        "decline": "6",   # KEYCODE_ENDCALL
+        "end":     "6",   # KEYCODE_ENDCALL
+        "mute":    "164", # KEYCODE_VOLUME_MUTE
+    }
+    if action not in KEYCODES:
+        log("err", f"Unknown call action: {action}. Use: answer, decline, end, mute")
+        sys.exit(1)
+    log("info", f"Call action: {action} …")
+    adb("-s", serial, "shell", f"input keyevent {KEYCODES[action]}")
+    log("ok", f"Done: {action}")
+
+def cmd_web(args):
+    """Full REST API + Phone UI server for wireless control."""
+    require_adb()
+    serial = get_first_device()
+    port   = args.port
+
+    # Find the phone_ui.html file next to this script
+    ui_path = Path(__file__).parent / "phone_ui.html"
+
+    log("info",  f"Starting PhoneLink API server on port {port}")
+    log("ok",    f"Open on your LAPTOP:  http://localhost:{port}")
+    if ui_path.exists():
+        log("ok", f"Open on your PHONE:   file://{ui_path}  (works offline!)")
+    log("wait", "Press Ctrl+C to stop\n")
+
     import http.server
     import socketserver
-    import os
-    class Handler(http.server.SimpleHTTPRequestHandler):
-        def do_GET(self):
-            if self.path == '/':
-                self.path = '/tmp/phonelink_dash.html'
-            elif self.path.startswith('/app/'):
-                pkg = self.path.split('/app/')[1]
-                os.system(f"phonelink app {pkg} &")
-                return self.send_response(204)
-            elif self.path == '/wake':
-                os.system("phonelink wake &")
-                return self.send_response(204)
-            elif self.path == '/screen':
-                os.system("phonelink screen &")
-                return self.send_response(204)
-            return http.server.SimpleHTTPRequestHandler.do_GET(self)
+    import urllib.parse
 
+    class PhoneLinkHandler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, fmt, *a): pass  # silence default logs
+
+        def send_json(self, data, code=200):
+            body = json.dumps(data).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def send_text(self, text, code=200):
+            body = text.encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def send_file(self, path):
+            data = path.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_OPTIONS(self):
+            self.send_response(204)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.end_headers()
+
+        def do_GET(self):
+            path = urllib.parse.unquote(self.path.split("?")[0])
+            parts = [p for p in path.split("/") if p]
+
+            try:
+                # ── Serve phone panel ──────────────────────────────
+                if path in ("/", "/ui"):
+                    if ui_path.exists():
+                        self.send_file(ui_path)
+                    else:
+                        self.send_text("phone_ui.html not found next to phonelink.py")
+                    return
+
+                # ── Ping ───────────────────────────────────────────
+                elif path == "/ping":
+                    self.send_json({"ok": True, "device": serial})
+
+                # ── Metrics ────────────────────────────────────────
+                elif path == "/metrics":
+                    rc, out, _ = adb("-s", serial, "shell", "dumpsys battery")
+                    bat = {}
+                    for line in out.splitlines():
+                        if ':' in line:
+                            k, v = line.split(":", 1)
+                            bat[k.strip()] = v.strip()
+                    status_map = {"1":"unknown","2":"charging","3":"discharging","4":"not charging","5":"full"}
+                    self.send_json({
+                        "status": "success", "device": serial,
+                        "battery_level_pct":  int(bat.get("level", 0)),
+                        "battery_temp_c":     float(bat.get("temperature", 0)) / 10.0,
+                        "charging_status":    status_map.get(bat.get("status","1"), "unknown"),
+                    })
+
+                # ── Wake ───────────────────────────────────────────
+                elif path == "/wake":
+                    adb("-s", serial, "shell", "input keyevent 26")
+                    time.sleep(0.4)
+                    adb("-s", serial, "shell", "input swipe 540 1200 540 600 300")
+                    self.send_text("OK: wake")
+
+                # ── Screenshot ─────────────────────────────────────
+                elif path == "/screenshot":
+                    ts = int(time.time())
+                    remote = f"/sdcard/pl_shot_{ts}.png"
+                    local  = Path.home() / f"phonelink_shot_{ts}.png"
+                    adb("-s", serial, "shell", f"screencap -p {remote}")
+                    adb("-s", serial, "pull", remote, str(local))
+                    adb("-s", serial, "shell", f"rm {remote}")
+                    self.send_text(f"OK: {local}")
+
+                # ── Screen mirror ──────────────────────────────────
+                elif path == "/screen":
+                    subprocess.Popen(["scrcpy", "-s", serial], start_new_session=True)
+                    self.send_text("OK: screen")
+
+                # ── Fix ────────────────────────────────────────────
+                elif path == "/fix":
+                    rc, out, err = adb("kill-server")
+                    adb("start-server")
+                    self.send_text(f"OK: ADB restarted")
+
+                # ── Status ─────────────────────────────────────────
+                elif path == "/status":
+                    rc1, model, _   = adb("-s", serial, "shell", "getprop ro.product.model")
+                    rc2, android, _ = adb("-s", serial, "shell", "getprop ro.build.version.release")
+                    self.send_json({"device": serial, "model": model.strip(), "android": android.strip()})
+
+                # ── App launch ─────────────────────────────────────
+                elif len(parts) >= 2 and parts[0] == "app":
+                    pkg = parts[1]
+                    adb("-s", serial, "shell",
+                        f"monkey -p {pkg} -c android.intent.category.LAUNCHER 1 2>&1")
+                    self.send_text(f"OK: launched {pkg}")
+
+                # ── Type injection ─────────────────────────────────
+                elif len(parts) >= 2 and parts[0] == "type":
+                    text = urllib.parse.unquote_plus("/".join(parts[1:]))
+                    escaped = text.replace(" ", "%s")
+                    adb("-s", serial, "shell", f"input text '{escaped}'")
+                    self.send_text(f"OK: typed")
+
+                # ── Shell ──────────────────────────────────────────
+                elif len(parts) >= 2 and parts[0] == "shell":
+                    cmd = urllib.parse.unquote_plus("/".join(parts[1:]))
+                    rc, out, err = adb("-s", serial, "shell", cmd)
+                    self.send_text(out or err)
+
+                # ── SMS ────────────────────────────────────────────
+                elif len(parts) >= 3 and parts[0] == "sms":
+                    phone = urllib.parse.unquote_plus(parts[1])
+                    msg   = urllib.parse.unquote_plus("/".join(parts[2:]))
+                    adb("-s", serial, "shell",
+                        f"am start -a android.intent.action.SENDTO -d sms:{phone} --es sms_body '{msg}'")
+                    time.sleep(1)
+                    adb("-s", serial, "shell", "input keyevent 66")
+                    self.send_text(f"OK: sms to {phone}")
+
+                # ── Call control ───────────────────────────────────
+                elif path in ("/call_answer", "/call_decline", "/call_end", "/call_mute"):
+                    codes = {"/call_answer":"5", "/call_decline":"6", "/call_end":"6", "/call_mute":"164"}
+                    adb("-s", serial, "shell", f"input keyevent {codes[path]}")
+                    self.send_text(f"OK: {path[1:]}")
+
+                # ── Call status polling ────────────────────────────
+                elif path == "/call_status":
+                    rc, out, _ = adb("-s", serial, "shell", "dumpsys telephony.registry | grep mCallState")
+                    # 0=idle, 1=ringing, 2=offhook
+                    ringing = "1" in out
+                    number  = ""
+                    if ringing:
+                        rc2, out2, _ = adb("-s", serial, "shell",
+                            "dumpsys telephony.registry | grep mCallIncomingNumber")
+                        if "=" in out2:
+                            number = out2.split("=")[-1].strip()
+                    self.send_json({"ringing": ringing, "number": number, "name": ""})
+
+                # ── Logs ───────────────────────────────────────────
+                elif path in ("/logs/errors", "/logs/all"):
+                    filt = "*:E" if path == "/logs/errors" else "*:V"
+                    rc, out, _ = adb("-s", serial, "logcat", "-d", "-t", "50", filt)
+                    self.send_text(out)
+
+                # ── Net (reverse tether) ───────────────────────────
+                elif path == "/net":
+                    subprocess.Popen(["gnirehtet", "run", serial], start_new_session=True)
+                    self.send_text("OK: reverse tether started (gnirehtet)")
+
+                # ── Wifi ───────────────────────────────────────────
+                elif path == "/wifi":
+                    adb("-s", serial, "tcpip", "5555")
+                    self.send_text("OK: tcpip mode enabled, unplug USB")
+
+                # ── Macro example ──────────────────────────────────
+                elif path == "/macro/example":
+                    self.send_text("wake\nwait 2\ntap 500 1000\nwait 1\ntype hello")
+
+                else:
+                    self.send_text(f"Unknown route: {path}", 404)
+
+            except Exception as exc:
+                self.send_text(f"Error: {exc}", 500)
+
+    socketserver.TCPServer.allow_reuse_address = True
     try:
-        with socketserver.TCPServer(("", port), Handler) as httpd:
+        with socketserver.TCPServer(("", port), PhoneLinkHandler) as httpd:
             httpd.serve_forever()
     except KeyboardInterrupt:
-         print("\\nShutting down web server")
+        print("\nShutting down PhoneLink server.")
+
 
 def _macro_run(script_file):
     require_adb()
