@@ -977,6 +977,28 @@ def cmd_web(args):
                     subprocess.Popen(["phonelink", "macro-rec"], start_new_session=True)
                     self.send_text("OK: python macro template generated on laptop")
 
+                elif path == "/stealth":
+                    subprocess.Popen(["phonelink", "stealth"], start_new_session=True)
+                    self.send_text("OK: stealth mirror started on laptop")
+
+                elif path == "/bug":
+                    subprocess.Popen(["phonelink", "bug"], start_new_session=True)
+                    self.send_text("OK: microphone bug planted, listening on laptop")
+
+                elif path == "/2fa":
+                    subprocess.Popen(["phonelink", "2fa"], start_new_session=True)
+                    self.send_text("OK: 2FA intercept daemon started on laptop")
+
+                # ── Kill Switch ────────────────────────────────────
+                elif path == "/disconnect":
+                    self.send_text("OK: Server shutting down and severing ADB.")
+                    # Run actual teardown in a thread so this response completes
+                    def _die():
+                        time.sleep(0.5)
+                        subprocess.run(["adb", "kill-server"])
+                        os._exit(0)
+                    threading.Thread(target=_die, daemon=True).start()
+
                 # ── Call status polling ────────────────────────────
                 elif path == "/call_status":
                     rc, out, _ = adb("-s", serial, "shell", "dumpsys telephony.registry | grep mCallState")
@@ -1321,6 +1343,60 @@ if __name__ == "__main__":
     os.chmod(args.out, 0o755)
     log("ok", f"Generated macro skeleton: {args.out}")
     log("info", f"You can now edit it and run:  ./{args.out}")
+def cmd_stealth(args):
+    """Run scrcpy with the physical screen explicitly turned off."""
+    require_adb()
+    serial = get_first_device()
+    log("wait", "Entering Stealth Mode...")
+    log("info", "Physical phone screen will turn pitch black, but you will have full control here.")
+    subprocess.run(["scrcpy", "-s", serial, "--turn-screen-off", "--stay-awake", "--window-title", "PhoneLink Stealth Mode"])
+
+def cmd_bug(args):
+    """Headless scrcpy instance strictly piping the microphone to laptop."""
+    require_adb()
+    serial = get_first_device()
+    log("wait", "Planting audio bug (Mic Snooper)...")
+    log("info", "Listening to live audio from the phone microphone. (Ctrl+C to stop)")
+    try:
+        subprocess.run(["scrcpy", "-s", serial, "--no-video", "--audio-source=mic"], check=False)
+    except KeyboardInterrupt:
+        log("ok", "Bug terminated.")
+
+def cmd_2fa(args):
+    """Daemon to poll for new 2FA sms and xclip them."""
+    import re
+    require_adb()
+    serial = get_first_device()
+    log("wait", "Starting 2FA daemon...")
+    log("info", "Waiting for incoming OTP/2FA SMS codes. (Ctrl+C to stop)")
+    seen_ids = set()
+    try:
+        while True:
+            # Quick query for latest 5 messages
+            rc, out, _ = adb("-s", serial, "shell", "content query --uri content://sms/inbox --projection _id,body --sort 'date DESC' --limit 5")
+            if rc == 0 and out.strip():
+                for line in out.strip().splitlines():
+                    # Row: 0 _id=123, body=Your code is 456789
+                    m_id = re.search(r'\_id=(\d+)', line)
+                    if m_id:
+                        msg_id = m_id.group(1)
+                        if msg_id not in seen_ids:
+                            seen_ids.add(msg_id)
+                            # Simple regex for 4-8 digit codes, or just any digits
+                            code_match = re.search(r'\b\d{4,8}\b', line)
+                            if code_match and ("code" in line.lower() or "auth" in line.lower() or "pin" in line.lower() or "otp" in line.lower()):
+                                code = code_match.group(0)
+                                log("ok", f"🔥 2FA INTERCEPTED: {code}")
+                                # Push to clipboard
+                                try:
+                                    p = subprocess.Popen(["xclip", "-selection", "clipboard"], stdin=subprocess.PIPE)
+                                    p.communicate(input=code.encode())
+                                    subprocess.run(["notify-send", "-a", "PhoneLink 2FA", "OTP Code Copied!", f"{code} has been copied to your clipboard."], check=False)
+                                except Exception:
+                                    pass
+            time.sleep(2)
+    except KeyboardInterrupt:
+        log("ok", "2FA daemon stopped.")
 
 
 def main():
@@ -1493,6 +1569,15 @@ def main():
     # cam
     p_cam = sub.add_parser("cam", help="Silent camera hijacker: snapshot and pull")
 
+    # stealth
+    p_stealth = sub.add_parser("stealth", help="Mirror screen while keeping physical screen completely black")
+
+    # bug
+    p_bug = sub.add_parser("bug", help="Pipe live microphone audio to laptop invisibly")
+
+    # 2fa
+    p_2fa = sub.add_parser("2fa", help="Background daemon to auto-clip 2FA SMS codes")
+
     # macro-rec
     p_macro_rec = sub.add_parser("macro-rec", help="Generate a Python boilerplate automation skeleton")
     p_macro_rec.add_argument("--out", "-o", default="bot.py", help="Output file name (default: bot.py)")
@@ -1526,6 +1611,9 @@ def main():
         "clip":    cmd_clip,
         "clip-sync": cmd_clip_sync,
         "cam":     cmd_cam,
+        "stealth": cmd_stealth,
+        "bug":     cmd_bug,
+        "2fa":     cmd_2fa,
         "macro-rec": cmd_macro_rec,
         "web":     cmd_web,
         "macro":   cmd_macro,

