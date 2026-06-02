@@ -2,9 +2,23 @@
 <html lang="en">
 
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>PhoneLink Remote Panel</title>
+  <meta charset="utf-8" />
+  <!-- PWA & Mobile Viewport Tags -->
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="PhoneLink" />
+  <meta name="theme-color" content="#0a0a0f" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>PhoneLink Control</title>
+
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="manifest.json">
+  <!-- Favicon / Apple Touch Icon -->
+  <link rel="apple-touch-icon" href="icon-512.png">
+  <link rel="icon" type="image/png" href="icon-512.png">
+
   <style>
     /* ── Design Tokens ──────────────────────────────── */
     :root {
@@ -546,7 +560,7 @@
 
   <!-- Server config -->
   <div class="config-bar">
-    <input type="text" id="server-ip" placeholder="e.g. 192.168.43.2:8765" />
+    <input type="text" id="server-ip" value="10.207.45.75:8000" placeholder="e.g. 192.168.43.2:8000" />
     <button onclick="connect()">Connect</button>
     <button onclick="disconnectServer()" style="background: var(--red); color: white;">Disconnect</button>
   </div>
@@ -934,13 +948,24 @@
     // ── Storage ─────────────────────────────────────────
     const STORE = { get: k => localStorage.getItem(k), set: (k, v) => localStorage.setItem(k, v) };
 
-    let serverBase = STORE.get('server') || '';
+    let serverBase = STORE.get('server') || 'http://10.207.45.75:8000';
     let pollTimer = null;
 
-    // Load saved IP on boot
+    // Auto-connect on boot
     window.onload = () => {
-      const saved = STORE.get('server');
-      if (saved) { document.getElementById('server-ip').value = saved; connect(); }
+      // 1. Check if the IP was passed dynamically in the URL (e.g. ?ip=192.168.1.5)
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlIp = urlParams.get('ip');
+
+      if (urlIp) {
+        document.getElementById('server-ip').value = urlIp;
+      } else {
+        // 2. Otherwise fallback to local storage
+        const saved = STORE.get('server');
+        if (saved) { document.getElementById('server-ip').value = saved; }
+      }
+
+      connect();
     };
 
     // ── Connect ──────────────────────────────────────────

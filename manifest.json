@@ -1,0 +1,17 @@
+{
+  "name": "PhoneLink Dashboard",
+  "short_name": "PhoneLink",
+  "description": "Headless Android Control Suite",
+  "start_url": "./phone_ui.html",
+  "display": "standalone",
+  "background_color": "#0a0a0f",
+  "theme_color": "#0a0a0f",
+  "icons": [
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

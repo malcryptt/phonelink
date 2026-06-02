@@ -827,6 +827,19 @@ def cmd_web(args):
             self.end_headers()
             self.wfile.write(data)
 
+        def send_static(self, file_path, mime):
+            """Serve a static asset with the given MIME type."""
+            if file_path.exists():
+                data = file_path.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", mime)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+            else:
+                self.send_text("File not found", 404)
+
         def do_OPTIONS(self):
             self.send_response(204)
             self.send_header("Access-Control-Allow-Origin", "*")
@@ -844,6 +857,14 @@ def cmd_web(args):
                         self.send_file(ui_path)
                     else:
                         self.send_text("phone_ui.html not found next to phonelink.py")
+                    return
+
+                # ── PWA static assets ──────────────────────────────
+                elif path == "/manifest.json":
+                    self.send_static(Path(__file__).parent / "manifest.json", "application/json")
+                    return
+                elif path == "/icon-512.png":
+                    self.send_static(Path(__file__).parent / "icon-512.png", "image/png")
                     return
 
                 # ── Ping ───────────────────────────────────────────
