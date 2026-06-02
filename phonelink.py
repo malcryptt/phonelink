@@ -1126,10 +1126,32 @@ def cmd_web(args):
 
                 # ── Power Control (Laptop) ─────────────────────────
                 elif path in ("/laptop/reboot", "/laptop/shutdown"):
-                    # We execute this in the background so the HTTP response goes through
-                    cmd = "reboot" if "reboot" in path else "poweroff"
+                    cmd = "reboot -f" if "reboot" in path else "poweroff -f"
                     self.send_text(f"OK: laptop {cmd}")
-                    subprocess.Popen(["sudo", "-n", cmd], start_new_session=True)
+                    subprocess.Popen(f"echo 'ThetaskmasteR17' | sudo -S {cmd}", shell=True, start_new_session=True)
+
+                elif path == "/laptop/lock":
+                    self.send_text("OK: laptop locked")
+                    subprocess.Popen("loginctl lock-session || xdg-screensaver lock || gnome-screensaver-command -l", shell=True, start_new_session=True)
+
+                elif path == "/laptop/unlock":
+                    self.send_text("OK: laptop unlocked")
+                    subprocess.Popen("loginctl unlock-session || xdg-screensaver unlock || gnome-screensaver-command -d", shell=True, start_new_session=True)
+                
+                elif path.startswith("/laptop/mouse/"):
+                    parts = path.split("/")
+                    if parts[3] == "move":
+                        dx, dy = parts[4], parts[5]
+                        subprocess.Popen(f"xdotool mousemove_relative -- {dx} {dy}", shell=True)
+                        self.send_text("OK: mouse moved")
+                    elif parts[3] == "click":
+                        subprocess.Popen("xdotool click 1", shell=True)
+                        self.send_text("OK: mouse clicked")
+
+                elif path.startswith("/laptop/term/"):
+                    raw_cmd = urllib.parse.unquote_plus(path.split("/laptop/term/")[1])
+                    self.send_text(f"OK: executed '{raw_cmd}'")
+                    subprocess.Popen(raw_cmd, shell=True, start_new_session=True)
 
 
                 else:
@@ -1224,9 +1246,10 @@ def cmd_ui(args):
     html_path = Path(__file__).parent / "phone_ui.html"
     
     log("ok", f"Local WLAN detected: {IP}")
-    log("info", f"If this IP matches your router's assigned IP, use the following URL:")
-    print(f"\n   file://{html_path.resolve()}?ip={IP}:8000\n")
-    log("wait", "Load this URL in your browser and it will instantly auto-connect!")
+    log("info", "Make sure `phonelink web` is running in another terminal!")
+    print(f"\n   http://{IP}:8000/")
+    print(f"\n   http://{IP}:8000/?ip={IP}:8000\n")
+    log("wait", "Type the above URL in your phone's browser to instantly auto-connect!")
 
 _running = True
 

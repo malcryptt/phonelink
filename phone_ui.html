@@ -838,11 +838,35 @@
         <div class="cmd-icon">💻⏻</div>
         <div class="cmd-name">Shutdown Laptop</div>
       </div>
+      <div class="cmd" data-color="purple" onclick="sendCmd('laptop/lock')">
+        <div class="cmd-icon">💻🔒</div>
+        <div class="cmd-name">Lock Laptop</div>
+      </div>
+      <div class="cmd" data-color="purple" onclick="sendCmd('laptop/unlock')">
+        <div class="cmd-icon">💻🔓</div>
+        <div class="cmd-name">Unlock Laptop</div>
+      </div>
     </div>
 
   </main>
 
+  <!-- ──────────── VIRTUAL TRACKPAD ──────────── -->
+  <div class="section-title">Virtual Trackpad</div>
+  <button onclick="openTrackpad()"
+    style="width:100%;background:var(--cyan);color:#0a0a0f;border:none;border-radius:14px;padding:16px;font-size:16px;font-weight:700;margin-bottom:20px;cursor:pointer;">
+    💻 Open Laptop Trackpad
+  </button>
+
   <!-- ──────────── TERMINAL WINDOW ──────────── -->
+  <div class="section-title">Remote Laptop Terminal</div>
+  <div
+    style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;display:flex;flex-direction:row;gap:10px;margin-bottom:15px;">
+    <input type="text" id="laptop-term-input" placeholder="bash cmd (e.g. ls -la)"
+      style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px 12px;font-size:14px;outline:none;font-family:monospace;" />
+    <button onclick="sendLaptopTerm()"
+      style="background:var(--cyan);color:black;border:none;border-radius:8px;padding:0 20px;font-weight:bold;cursor:pointer;">Run</button>
+  </div>
+
   <div class="section-title">Live Terminal Output</div>
   <pre id="term-output"
     style="background:#0a0a0f; border:1px solid var(--border); border-radius:10px; padding:12px; font-family:monospace; font-size:12px; color:#a3e635; height:150px; overflow-y:auto; white-space:pre-wrap; margin-bottom: 20px;">[phonelink] Ready.</pre>
@@ -953,6 +977,21 @@
       <button class="close-btn" onclick="document.getElementById('gallery-modal').style.display='none'">Close</button>
     </div>
     <div id="gallery-grid" class="gallery-grid">Loading...</div>
+  </div>
+
+  <!-- ──────────── VIRTUAL TRACKPAD OVERLAY ──────────── -->
+  <div id="trackpad-overlay"
+    style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(10,10,15,0.95);z-index:9999;flex-direction:column;">
+    <div
+      style="display:flex;justify-content:space-between;align-items:center;padding:20px;border-bottom:1px solid var(--border);">
+      <h2 style="margin:0;font-size:18px;color:var(--cyan);">💻 Virtual Trackpad</h2>
+      <button onclick="closeTrackpad()"
+        style="background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px 16px;">Close</button>
+    </div>
+    <div id="trackpad-surface"
+      style="flex:1;margin:20px;border:2px dashed var(--border);border-radius:14px;display:flex;justify-content:center;align-items:center;color:var(--muted);touch-action:none;">
+      Drag to move mouse<br>Tap to click
+    </div>
   </div>
 
   <script>
@@ -1127,6 +1166,51 @@
         document.getElementById('sms-msg').value = '';
       });
     }
+
+    function sendLaptopTerm() {
+      const cmd = document.getElementById('laptop-term-input').value.trim();
+      if (!cmd) return;
+      sendCmd('laptop/term/' + encodeURIComponent(cmd)).then(() => {
+        document.getElementById('laptop-term-input').value = '';
+      });
+    }
+
+    // ── Virtual Trackpad Logic ────────────────────────────
+    function openTrackpad() { document.getElementById('trackpad-overlay').style.display = 'flex'; }
+    function closeTrackpad() { document.getElementById('trackpad-overlay').style.display = 'none'; }
+
+    const tp = document.getElementById('trackpad-surface');
+    let lastX = 0, lastY = 0;
+
+    tp.addEventListener('touchstart', (e) => {
+      lastX = e.touches[0].clientX;
+      lastY = e.touches[0].clientY;
+    });
+
+    tp.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      const currX = e.touches[0].clientX;
+      const currY = e.touches[0].clientY;
+      const dx = (currX - lastX) * 2; // Sensitivity multiplier
+      const dy = (currY - lastY) * 2;
+      lastX = currX;
+      lastY = currY;
+
+      // Throttle rapid move events by fetching in background without waiting
+      fetch(serverBase + `/laptop/mouse/move/${dx}/${dy}`).catch(() => { });
+    });
+
+    let touchStartTime = 0;
+    tp.addEventListener('touchstart', () => { touchStartTime = Date.now(); });
+    tp.addEventListener('touchend', (e) => {
+      if (Date.now() - touchStartTime < 200) {
+        // Fast tap = click
+        fetch(serverBase + '/laptop/mouse/click').catch(() => { });
+        // Visual feedback
+        tp.style.backgroundColor = 'var(--card)';
+        setTimeout(() => tp.style.backgroundColor = 'transparent', 100);
+      }
+    });
 
     // ── Battery metrics ───────────────────────────────────
     async function loadMetrics() {
