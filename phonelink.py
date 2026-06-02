@@ -1182,6 +1182,28 @@ swipe 500 1000 500 200 500
         print(example)
         log("info", "Save this as bot.txt and run: phonelink macro run bot.txt")
 
+def cmd_ui(args):
+    """Generate the customized HTML UI Launch Link."""
+    import socket
+    
+    # Attempt to sniff the active LAN IP
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        # isn't actually making a connection
+        s.connect(('10.255.255.255', 1))
+        IP = s.getsockname()[0]
+    except Exception:
+        IP = '127.0.0.1'
+    finally:
+        s.close()
+        
+    html_path = Path(__file__).parent / "phone_ui.html"
+    
+    log("ok", f"Local WLAN detected: {IP}")
+    log("info", f"If this IP matches your router's assigned IP, use the following URL:")
+    print(f"\n   file://{html_path.resolve()}?ip={IP}:8000\n")
+    log("wait", "Load this URL in your browser and it will instantly auto-connect!")
+
 _running = True
 
 def _signal_handler(sig, frame):
@@ -1731,6 +1753,9 @@ def main():
     p_macro_rec = sub.add_parser("macro-rec", help="Generate a Python boilerplate automation skeleton")
     p_macro_rec.add_argument("--out", "-o", default="bot.py", help="Output file name (default: bot.py)")
 
+    # ui
+    p_ui = sub.add_parser("ui", help="Generate a customized auto-launch link for the HTML Dashboard")
+
     args = parser.parse_args()
 
     dispatch = {
@@ -1767,6 +1792,7 @@ def main():
         "notifs":  cmd_notifs,
         "ui-dump": cmd_ui_dump,
         "macro-rec": cmd_macro_rec,
+        "ui":      cmd_ui,
         "web":     cmd_web,
         "macro":   cmd_macro,
     }
