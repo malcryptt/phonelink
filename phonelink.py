@@ -13,6 +13,7 @@ import threading
 import signal
 import shutil
 import re
+import json
 from pathlib import Path
 
 # ─────────────────────────── ANSI colours ────────────────────────────
@@ -755,6 +756,28 @@ def cmd_guard(args):
     except KeyboardInterrupt:
         log("info", "Guard stopped.")
 
+def cmd_power(args):
+    """Reboot or shutdown the phone from the laptop terminal."""
+    require_adb()
+    serial = get_first_device()
+    action = args.action
+    if action == "reboot":
+        log("info", "Rebooting phone \u2026")
+        adb("-s", serial, "reboot")
+        log("ok", "Reboot command sent.")
+    elif action == "shutdown":
+        log("info", "Shutting down phone \u2026")
+        adb("-s", serial, "shell", "reboot -p")
+        log("ok", "Shutdown command sent.")
+    elif action == "recovery":
+        log("info", "Rebooting phone into recovery \u2026")
+        adb("-s", serial, "reboot", "recovery")
+        log("ok", "Recovery reboot sent.")
+    elif action == "bootloader":
+        log("info", "Rebooting phone into bootloader \u2026")
+        adb("-s", serial, "reboot", "bootloader")
+        log("ok", "Bootloader reboot sent.")
+
 def cmd_web(args):
     """Full REST API + Phone UI server for wireless control."""
     require_adb()
@@ -913,6 +936,15 @@ def cmd_web(args):
                     adb("-s", serial, "shell", f"input keyevent {codes[path]}")
                     self.send_text(f"OK: {path[1:]}")
 
+                elif path == "/call_audio":
+                    subprocess.Popen(["phonelink", "call", "audio"], start_new_session=True)
+                    self.send_text("OK: streaming call audio to laptop")
+
+                # ── Inbox ──────────────────────────────────────────
+                elif path == "/inbox":
+                    subprocess.Popen(["phonelink", "inbox"], start_new_session=True)
+                    self.send_text("OK: dumped inbox to laptop terminal")
+
                 # ── Call status polling ────────────────────────────
                 elif path == "/call_status":
                     rc, out, _ = adb("-s", serial, "shell", "dumpsys telephony.registry | grep mCallState")
@@ -945,6 +977,19 @@ def cmd_web(args):
                 # ── Macro example ──────────────────────────────────
                 elif path == "/macro/example":
                     self.send_text("wake\nwait 2\ntap 500 1000\nwait 1\ntype hello")
+
+                # ── Power Control (Phone) ──────────────────────────
+                elif path in ("/power/reboot", "/power/shutdown"):
+                    adb("-s", serial, "shell", "reboot" + (" -p" if "shutdown" in path else ""))
+                    self.send_text(f"OK: phone {path.split('/')[-1]}")
+
+                # ── Power Control (Laptop) ─────────────────────────
+                elif path in ("/laptop/reboot", "/laptop/shutdown"):
+                    # We execute this in the background so the HTTP response goes through
+                    cmd = "reboot" if "reboot" in path else "poweroff"
+                    self.send_text(f"OK: laptop {cmd}")
+                    subprocess.Popen(["sudo", "-n", cmd], start_new_session=True)
+
 
                 else:
                     self.send_text(f"Unknown route: {path}", 404)
@@ -1302,6 +1347,10 @@ def main():
     p_guard.add_argument("--screenshot", action="store_true", default=True,
                          help="Auto-screenshot on every call (default: on)")
 
+    # power
+    p_power = sub.add_parser("power", help="Reboot or shutdown the phone")
+    p_power.add_argument("action", choices=["reboot", "shutdown", "recovery", "bootloader"])
+
     # web
     p_web = sub.add_parser("web", help="Start full REST API + phone HTML panel")
     p_web.add_argument("--port", type=int, default=8000, help="Port to run the dashboard on (default: 8000)")
@@ -1339,6 +1388,7 @@ def main():
         "notify":  cmd_notify,
         "inbox":   cmd_sms_inbox,
         "guard":   cmd_guard,
+        "power":   cmd_power,
         "sms":     cmd_sms,
         "clip":    cmd_clip,
         "web":     cmd_web,
