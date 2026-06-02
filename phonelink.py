@@ -964,6 +964,19 @@ def cmd_web(args):
                     subprocess.Popen(["phonelink", "inbox"], start_new_session=True)
                     self.send_text("OK: dumped inbox to laptop terminal")
 
+                # ── Advanced Tools ─────────────────────────────────
+                elif path == "/cam":
+                    subprocess.Popen(["phonelink", "cam"], start_new_session=True)
+                    self.send_text("OK: stealth camera triggered on laptop")
+
+                elif path == "/clip-sync":
+                    subprocess.Popen(["phonelink", "clip-sync"], start_new_session=True)
+                    self.send_text("OK: clipboard sync daemon started on laptop")
+
+                elif path == "/macro-rec":
+                    subprocess.Popen(["phonelink", "macro-rec"], start_new_session=True)
+                    self.send_text("OK: python macro template generated on laptop")
+
                 # ── Call status polling ────────────────────────────
                 elif path == "/call_status":
                     rc, out, _ = adb("-s", serial, "shell", "dumpsys telephony.registry | grep mCallState")
