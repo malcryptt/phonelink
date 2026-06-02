@@ -1406,6 +1406,83 @@ if __name__ == "__main__":
     os.chmod(args.out, 0o755)
     log("ok", f"Generated macro skeleton: {args.out}")
     log("info", f"You can now edit it and run:  ./{args.out}")
+
+def cmd_gps(args):
+    """Dump live location and generate a Google Maps link."""
+    import re
+    require_adb()
+    serial = get_first_device()
+    log("wait", "Pulling live GPS coordinates from location provider...")
+    rc, out, _ = adb("-s", serial, "shell", "dumpsys location | grep -m 1 -E '^[ \\t]*Location\\['")
+    if rc == 0 and "gps" in out:
+        match = re.search(r'([+-]?\\d+\\.\\d+),([+-]?\\d+\\.\\d+)', out)
+        if match:
+            lat, lon = match.groups()
+            log("ok", f"Coords: {lat}, {lon}")
+            log("info", f"Google Maps: https://maps.google.com/?q={lat},{lon}")
+            return
+    log("fail", "Could not acquire a valid GPS lock. Ensure location services are ON.")
+
+def cmd_notifs(args):
+    """Mirror Android notifications to Linux desktop."""
+    import re
+    require_adb()
+    serial = get_first_device()
+    log("wait", "Starting background notification daemon...")
+    log("info", "Listening for new system notifications. (Ctrl+C to stop)")
+    seen = set()
+    try:
+        while True:
+            rc, out, _ = adb("-s", serial, "shell", "dumpsys notification --noredact")
+            if rc == 0:
+                chunks = out.split("NotificationRecord(")
+                for chunk in chunks[1:]:
+                    pkg_match = re.search(r'pkg=([\\w\\.]+)', chunk)
+                    if not pkg_match: continue
+                    pkg = pkg_match.group(1)
+                    
+                    title = "System"
+                    body = ""
+                    
+                    # Regex handles android.title or android-title keys
+                    title_m = re.search(r'android(?:-|\\.)title=String \\((.*?)\\)', chunk)
+                    if not title_m:
+                        title_m = re.search(r'title=String \\((.*?)\\)', chunk)
+                    if title_m: title = title_m.group(1)
+                    
+                    text_m = re.search(r'android(?:-|\\.)text=String \\((.*?)\\)', chunk)
+                    if not text_m:
+                        text_m = re.search(r'text=String \\((.*?)\\)', chunk)
+                    if text_m: body = text_m.group(1)
+
+                    if not title and not body: continue
+                    if "null" in title.lower() and "null" in body.lower(): continue
+
+                    nid = f"{pkg}::{title}::{body}"
+                    if nid not in seen:
+                        seen.add(nid)
+                        log("ok", f"🔔 [{pkg}] {title}: {body}")
+                        subprocess.run(["notify-send", "-a", pkg, title, body], check=False)
+            time.sleep(3)
+    except KeyboardInterrupt:
+        log("ok", "Notification mirroring stopped.")
+
+def cmd_ui_dump(args):
+    """Dump the UI hierarchy to XML."""
+    require_adb()
+    serial = get_first_device()
+    log("wait", "Dumping UI Automator layout...")
+    rc, out, _ = adb("-s", serial, "shell", "uiautomator dump /sdcard/ui_dump.xml")
+    if rc == 0 and ("dumped" in out.lower() or "ui hierarchy" in out.lower()):
+        log("wait", "Pulling XML file...")
+        rc, _, _ = adb("-s", serial, "pull", "/sdcard/ui_dump.xml", "ui_dump.xml")
+        adb("-s", serial, "shell", "rm /sdcard/ui_dump.xml")
+        if Path("ui_dump.xml").exists():
+            log("ok", "UI logic successfully extracted to: ui_dump.xml")
+            log("info", "Open the XML and look for 'text' or 'resource-id' references for bot coordinates.")
+            return
+    log("fail", "Failed to extract UI dump. Is the screen unlocked?")
+
 def cmd_stealth(args):
     """Run scrcpy with the physical screen explicitly turned off."""
     require_adb()
@@ -1641,6 +1718,15 @@ def main():
     # 2fa
     p_2fa = sub.add_parser("2fa", help="Background daemon to auto-clip 2FA SMS codes")
 
+    # gps
+    p_gps = sub.add_parser("gps", help="Dump absolute mathematical coordinates and format to Google Maps")
+
+    # notifs
+    p_notifs = sub.add_parser("notifs", help="Persistent Linux desktop mirror for every Android notification")
+
+    # ui-dump
+    p_ui_dump = sub.add_parser("ui-dump", help="Scrape current screen XML hierarchy directly into terminal directory")
+
     # macro-rec
     p_macro_rec = sub.add_parser("macro-rec", help="Generate a Python boilerplate automation skeleton")
     p_macro_rec.add_argument("--out", "-o", default="bot.py", help="Output file name (default: bot.py)")
@@ -1677,6 +1763,9 @@ def main():
         "stealth": cmd_stealth,
         "bug":     cmd_bug,
         "2fa":     cmd_2fa,
+        "gps":     cmd_gps,
+        "notifs":  cmd_notifs,
+        "ui-dump": cmd_ui_dump,
         "macro-rec": cmd_macro_rec,
         "web":     cmd_web,
         "macro":   cmd_macro,
