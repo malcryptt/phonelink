@@ -7,6 +7,7 @@ Persistent USB Android connection tool for Linux, built for IoT and automation.
 - **Auto-healing ADB:** Automatically diagnoses and applies udev rules for 40+ OEM vendor IDs to ensure Linux never drops USB permissions unexpectedly.
 - **Persistent Monitor:** Runs in the background, automatically restarting ADB and reconnecting to the phone if the USB connection bounces.
 - **Screen Mirroring:** Wraps `scrcpy` to instantly mirror the screen upon connection.
+- **Wireless ADB / Wi-Fi IoT:** Pair automatically over Wi-Fi so the phone can be disconnected from USB and placed anywhere (`phonelink wifi`).
 - **IoT / Automation Toolkit:**
   - `phonelink wake`: Wakes the screen and attempts a swipe-to-unlock.
   - `phonelink app <pkg>`: Remotely launches any Android package.
@@ -14,11 +15,19 @@ Persistent USB Android connection tool for Linux, built for IoT and automation.
   - `phonelink metrics`: Exports battery level, temperature, and charging status as JSON.
   - `phonelink screenshot`: Quietly captures the screen to the PC.
   - `phonelink net`: Prepares reverse-tethering (internet over USB) via `gnirehtet`.
+  - `phonelink logs`: Streams logcat, optionally filtering via `--filter` or `--errors`.
+  - `phonelink sync <pc_folder> <phone_folder>`: Watches a local folder natively and auto-pushes files on changes.
 
 ## Installation
 
-Run the install script to copy `phonelink` to `/usr/local/bin` (or `~/.local/bin`) and apply the necessary udev rules:
+**Via pip (Recommended):**
+```bash
+pip install phonelink-cli
+# Or from source:
+pip install .
+```
 
+**Manual script install:**
 ```bash
 chmod +x install.sh
 ./install.sh

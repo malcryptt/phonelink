@@ -427,6 +427,102 @@ def cmd_net(args):
         print(f"      {DIM}sudo chmod +x /usr/local/bin/gnirehtet{RST}")
         print("\nOnce installed, re-run: phonelink net")
 
+def cmd_wifi(args):
+    """Pair over Wi-Fi so USB can be disconnected."""
+    require_adb()
+    serial = get_first_device()
+    log("info", f"Restarting ADB in TCP/IP mode on {serial} …")
+    rc, out, err = adb("-s", serial, "tcpip", "5555")
+    if rc != 0:
+        log("err", f"Failed to set tcpip mode: {err}"); sys.exit(1)
+    
+    time.sleep(2)
+    # Get IP address
+    rc, out, err = adb("-s", serial, "shell", "ip route")
+    ip = None
+    for line in out.splitlines():
+        if "wlan0" in line and "src " in line:
+            parts = line.split("src ")
+            if len(parts) > 1:
+                ip_part = parts[1].split()[0]
+                ip = ip_part.strip()
+                break
+    
+    if not ip:
+         log("err", "Could not find phone's Wi-Fi IP address. Is it connected to Wi-Fi?")
+         sys.exit(1)
+         
+    log("ok", f"Phone IP detected: {G}{ip}{RST}")
+    log("info", f"Connecting via Wi-Fi …")
+    rc, out, err = adb("connect", f"{ip}:5555")
+    if "connected" in out.lower() or rc == 0:
+        log("ok", f"Connected via Wi-Fi to {ip}:5555")
+        log("info", f"{Y}You can now safely unplug the USB cable!{RST}")
+    else:
+        log("err", f"Failed to connect: {out} {err}")
+
+def cmd_logs(args):
+    """Stream logcat with optional keyword filtering."""
+    require_adb()
+    serial = get_first_device()
+    cmd = f"adb -s {serial} logcat"
+    if args.filter:
+        if args.errors:
+            cmd = f'adb -s {serial} logcat *:E | grep -i "{args.filter}"'
+        else:
+            cmd = f'adb -s {serial} logcat | grep -i "{args.filter}"'
+    else:
+        if args.errors:
+            cmd = f'adb -s {serial} logcat *:E'
+
+    log("info", f"Streaming logs (press Ctrl+C to stop) …")
+    try:
+        os.system(cmd)
+    except KeyboardInterrupt:
+        pass
+
+def cmd_sync(args):
+    """Watch a local file/folder and push on changes."""
+    def get_time(path):
+        return os.stat(path).st_mtime if os.path.exists(path) else 0
+
+    require_adb()
+    serial = get_first_device()
+    src = Path(args.src)
+    dst = args.dst
+    
+    if not src.exists():
+        log("err", f"Source {src} does not exist.")
+        sys.exit(1)
+
+    log("info", f"Watching {src} for changes … (Pushing to {dst})")
+    
+    # Simple polling (no external dependencies)
+    last_mtime = 0
+    try:
+        while True:
+            current_mtime = 0
+            if src.is_file():
+                current_mtime = get_time(src)
+            else:
+                for f in src.rglob('*'):
+                    m = get_time(f)
+                    if m > current_mtime:
+                        current_mtime = m
+            
+            if current_mtime > last_mtime:
+                log("wait", "Changes detected. Pushing …")
+                rc, out, err = adb("-s", serial, "push", str(src), dst)
+                if rc == 0:
+                    log("ok", f"Synced to phone.")
+                else:
+                    log("err", f"Sync failed: {err}")
+                last_mtime = current_mtime
+
+            time.sleep(2)
+    except KeyboardInterrupt:
+        log("info", "Sync stopped.")
+
 _running = True
 
 def _signal_handler(sig, frame):
@@ -583,6 +679,10 @@ def main():
   {G}metrics{RST}    Export battery & temp data as JSON
   {G}screenshot{RST} Quick PC screen capture
   {G}net{RST}        Internet over USB (Reverse Tethering)
+  {C}[Ultimate Features]{RST}
+  {G}wifi{RST}       Pair and connect device over local Wi-Fi
+  {G}logs{RST}       Stream phone logcat with optional filters
+  {G}sync{RST}       Watch a PC folder and auto-push changes to phone
 
 {C}Examples:{RST}
   phonelink watch --screen          # Watch + auto-launch scrcpy
@@ -659,6 +759,19 @@ def main():
     # net
     sub.add_parser("net", help="Reverse tethering over USB")
 
+    # wifi
+    sub.add_parser("wifi", help="Wireless pair and connect over Wi-Fi")
+
+    # logs
+    p_logs = sub.add_parser("logs", help="Stream and filter logcat")
+    p_logs.add_argument("--filter", "-f", type=str, help="Keyword filtering (grep)")
+    p_logs.add_argument("--errors", "-e", action="store_true", help="Only show errors")
+
+    # sync
+    p_sync = sub.add_parser("sync", help="Auto-push folder on file changes")
+    p_sync.add_argument("src", help="Local file or folder to monitor")
+    p_sync.add_argument("dst", help="Destination path on device")
+
     args = parser.parse_args()
 
     dispatch = {
@@ -676,6 +789,9 @@ def main():
         "metrics": cmd_metrics,
         "screenshot": cmd_screenshot,
         "net":     cmd_net,
+        "wifi":    cmd_wifi,
+        "logs":    cmd_logs,
+        "sync":    cmd_sync,
     }
 
     if args.cmd in dispatch:
