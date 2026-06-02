@@ -1119,7 +1119,7 @@
     function sendSMS() {
       const phone = document.getElementById('sms-phone').value.trim();
       const msg = document.getElementById('sms-msg').value.trim();
-      if (phonelink status
+      if (!phone
         || !msg) { toast('Fill in phone and message!'); return; }
       sendCmd('sms/' + encodeURIComponent(phone) + '/' + encodeURIComponent(msg)).then(() => {
         document.getElementById('sms-msg').value = '';
