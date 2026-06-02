@@ -964,14 +964,16 @@
 
     // Auto-connect on boot
     window.onload = () => {
-      // 1. Check if the IP was passed dynamically in the URL (e.g. ?ip=192.168.1.5)
       const urlParams = new URLSearchParams(window.location.search);
       const urlIp = urlParams.get('ip');
 
-      if (urlIp) {
+      if (window.location.protocol.startsWith('http') && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+        // Automatically trust the server host if accessed via network
+        document.getElementById('server-ip').value = window.location.host;
+      } else if (urlIp) {
         document.getElementById('server-ip').value = urlIp;
       } else {
-        // 2. Otherwise fallback to local storage
+        // Fallback to local storage
         const saved = STORE.get('server');
         if (saved) { document.getElementById('server-ip').value = saved; }
       }
