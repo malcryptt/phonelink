@@ -866,6 +866,9 @@ def cmd_web(args):
                 elif path == "/icon-512.png":
                     self.send_static(Path(__file__).parent / "icon-512.png", "image/png")
                     return
+                elif path == "/sw.js":
+                    self.send_static(Path(__file__).parent / "sw.js", "application/javascript")
+                    return
 
                 # ── Ping ───────────────────────────────────────────
                 elif path == "/ping":
