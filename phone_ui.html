@@ -596,6 +596,14 @@
 
   <main>
 
+    <!-- ──────────── BATTERY & SYSTEM STATS WIDGET ──────────── -->
+    <div
+      style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:12px 20px;display:flex;justify-content:space-between;font-size:13px;color:var(--text);font-weight:bold;margin-bottom:20px;box-shadow:0 4px 12px rgba(0,0,0,0.5);">
+      <span id="stat-bat" style="color:var(--green);">🔋 --%</span>
+      <span id="stat-temp" style="color:var(--yellow);">🌡️ --°C</span>
+      <span id="stat-up" style="color:var(--cyan);">⏱️ --h</span>
+    </div>
+
     <!-- ── Incoming Call Banner (shown by server push / polling) ── -->
     <div id="call-panel">
       <div style="font-size:13px;color:var(--muted)">📞 Incoming call from</div>
@@ -785,6 +793,17 @@
         style="flex:1;background:var(--purple);color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;">Forward</button>
     </div>
 
+    <!-- ──────────── WAKE ON LAN ──────────── -->
+    <div class="section-title">Wake-on-LAN</div>
+    <div
+      style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;display:flex;gap:10px;margin-bottom:20px;">
+      <input type="text" id="wol-mac" placeholder="MAC (e.g. AA:BB:CC:DD:EE:FF)"
+        style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px 12px;font-size:14px;outline:none;" />
+      <button onclick="sendWOL()"
+        style="background:var(--cyan);color:#000;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;">Wake
+        PC</button>
+    </div>
+
     <!-- ──────────── SMS ──────────── -->
     <div class="section-title">Send SMS</div>
     <div
@@ -867,6 +886,18 @@
     </div>
   </div>
 
+  <!-- ──────────── LAPTOP VOLUME ──────────── -->
+  <div class="section-title">Laptop Volume</div>
+  <div
+    style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:20px;">
+    <div style="display:flex;align-items:center;gap:15px;">
+      <span style="font-size:24px;">🔈</span>
+      <input type="range" id="volumeSlider" min="0" max="100" value="50" style="flex:1;cursor:pointer;"
+        onchange="setVolume(this.value)" oninput="this.title=this.value+'%'">
+      <span style="font-size:24px;">🔊</span>
+    </div>
+  </div>
+
   <!-- ──────────── MEDIA REMOTE ──────────── -->
   <div class="section-title">Media Remote</div>
   <div class="grid">
@@ -925,9 +956,23 @@
     </table>
   </div>
 
+  <!-- ──────────── SYSTEM NOTIFICATIONS ──────────── -->
+  <div class="section-title">Recent Notifications</div>
+  <div
+    style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:20px;">
+    <div id="notif-feed" style="font-size:12px;color:var(--text);display:flex;flex-direction:column;gap:8px;">
+      <div style="color:var(--muted);text-align:center;">Loading notifications...</div>
+    </div>
+  </div>
+
   <!-- ──────────── QUICK LAUNCH ──────────── -->
-  <div class="section-title">Quick Launch</div>
-  <div class="grid">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;">
+    <div class="section-title">Quick Launch</div>
+    <button onclick="editQuickApps()"
+      style="background:none;border:none;color:var(--accent);font-size:12px;cursor:pointer;margin-bottom:10px;">✏️
+      Edit</button>
+  </div>
+  <div class="grid" id="qlaunch-grid">
     <div class="cmd" data-color="green" onclick="launchApp('spotify')">
       <div class="cmd-icon">🎵</div>
       <div class="cmd-name">Spotify</div>
@@ -954,22 +999,23 @@
     </div>
   </div>
 
-  <!-- ──────────── LAPTOP WEBCAM ──────────── -->
-  <div class="section-title">Laptop Webcam</div>
+  <!-- ──────────── REMOTE VISION ──────────── -->
+  <div class="section-title">Remote Vision</div>
   <div style="display:flex;gap:10px;margin-bottom:10px;">
-    <button onclick="snapWebcam()"
-      style="flex:1;background:var(--green);color:#0a0a0f;border:none;border-radius:14px;padding:16px;font-size:14px;font-weight:700;cursor:pointer;">
-      📸 Take Snapshot
-    </button>
+    <button onclick="takeScreenshot()"
+      style="flex:1;min-width:90px;background:var(--purple);color:#fff;border:none;border-radius:14px;padding:12px 8px;font-size:12px;font-weight:700;cursor:pointer;">🖥️
+      Screen</button>
+    <button id="record-btn" onclick="toggleRecord()"
+      style="flex:1;min-width:90px;background:var(--red);color:#fff;border:none;border-radius:14px;padding:12px 8px;font-size:12px;font-weight:700;cursor:pointer;">🔴
+      Record</button>
     <button id="cam-stream-btn" onclick="toggleLiveCam()"
-      style="flex:1;background:var(--purple);color:#fff;border:none;border-radius:14px;padding:16px;font-size:14px;font-weight:700;cursor:pointer;">
-      📹 Live Stream
-    </button>
+      style="flex:1;min-width:90px;background:var(--accent);color:#000;border:none;border-radius:14px;padding:12px 8px;font-size:12px;font-weight:700;cursor:pointer;">📹
+      Live Cam</button>
   </div>
-  <div id="cam-preview"
+  <div id="vision-preview"
     style="display:none;text-align:center;margin-bottom:20px;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:10px;">
-    <img id="cam-img" style="max-width:100%;border-radius:10px;" />
-    <div id="cam-label" style="margin-top:8px;color:var(--muted);font-size:12px;">Webcam viewer</div>
+    <img id="vision-img" style="max-width:100%;border-radius:10px;" />
+    <div id="vision-label" style="margin-top:8px;color:var(--muted);font-size:12px;">Vision viewer</div>
   </div>
 
   <!-- ──────────── TWO-WAY AUDIO ──────────── -->
@@ -1107,14 +1153,19 @@
 
   <!-- ──────────── FILE TRANSFER ──────────── -->
   <div class="section-title">File Transfer</div>
-  <div
-    style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:10px;">
-    <div style="font-weight:700;color:var(--cyan);margin-bottom:10px;">📤 Upload File to Laptop</div>
-    <input type="file" id="file-upload-input"
-      style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font-size:14px;margin-bottom:10px;" />
-    <button onclick="uploadToPC()"
-      style="width:100%;background:var(--accent2);color:#000;border:none;border-radius:10px;padding:12px;font-size:15px;font-weight:700;cursor:pointer;">
-      ⬆️ Send to ~/Downloads
+  <div id="drop-zone"
+    style="background:var(--bg);border:2px dashed var(--border);border-radius:14px;padding:24px 14px;margin-bottom:10px;text-align:center;cursor:pointer;transition:border-color 0.2s;"
+    onclick="document.getElementById('file-upload-input').click()"
+    ondragover="this.style.borderColor='var(--cyan)'; event.preventDefault();"
+    ondragleave="this.style.borderColor='var(--border)'; event.preventDefault();"
+    ondrop="this.style.borderColor='var(--border)'; event.preventDefault(); handleFileDrop(event);">
+    <div style="font-size:24px;margin-bottom:10px;">📂</div>
+    <div style="font-weight:700;color:var(--cyan);margin-bottom:6px;">Tap to Upload or Drop File</div>
+    <div style="color:var(--muted);font-size:12px;margin-bottom:16px;">Sends directly to ~/Downloads</div>
+    <input type="file" id="file-upload-input" style="display:none;" onchange="uploadToPC()" />
+    <button onclick="event.stopPropagation(); document.getElementById('file-upload-input').click()"
+      style="width:100%;margin-top:10px;background:var(--accent2);color:#000;border:none;border-radius:10px;padding:12px;font-size:15px;font-weight:700;cursor:pointer;">
+      Select File
     </button>
   </div>
   <div
@@ -1545,8 +1596,132 @@
     function startProcMonitor() {
       if (procInterval) clearInterval(procInterval);
       refreshProcesses();
-      procInterval = setInterval(refreshProcesses, 5000);
+      refreshStats();
+      refreshNotifications();
+      procInterval = setInterval(() => {
+        refreshProcesses();
+        refreshStats();
+        refreshNotifications();
+      }, 5000);
     }
+
+    function refreshStats() {
+      if (!serverBase) return;
+      fetch(serverBase + '/laptop/stats', { method: 'POST' })
+        .then(r => r.json())
+        .then(d => {
+          if (d.ok) {
+            document.getElementById('stat-bat').innerHTML = `🔋 ${d.battery}${d.charging ? ' ⚡' : ''}`;
+            document.getElementById('stat-temp').innerHTML = `🌡️ ${d.cpu_temp}`;
+            document.getElementById('stat-up').innerHTML = `⏱️ ${d.uptime}`;
+          }
+        }).catch(() => { });
+    }
+
+    function refreshNotifications() {
+      if (!serverBase) return;
+      fetch(serverBase + '/laptop/notifications', { method: 'POST' })
+        .then(r => r.json())
+        .then(d => {
+          if (d.ok && d.notifs && d.notifs.length) {
+            const feed = document.getElementById('notif-feed');
+            feed.innerHTML = d.notifs.map(n => `<div style="border-bottom:1px solid var(--border);padding-bottom:5px;"><b>${n.source}</b> <span style="color:var(--muted);float:right;">${n.time}</span><br>${n.message}</div>`).join('');
+          }
+        }).catch(() => { });
+    }
+
+    function sendWOL() {
+      const mac = document.getElementById('wol-mac').value;
+      if (!mac) return toast('Enter MAC address');
+      fetch(serverBase + '/laptop/wol', { method: 'POST', body: JSON.stringify({ mac }) })
+        .then(() => toast('Magic packet sent!'))
+        .catch(e => toast('WOL failed: ' + e));
+    }
+
+    let volTid = null;
+    function setVolume(val) {
+      if (volTid) clearTimeout(volTid);
+      volTid = setTimeout(() => {
+        fetch(serverBase + '/laptop/volume', { method: 'POST', body: JSON.stringify({ level: parseInt(val) }) });
+      }, 100);
+    }
+
+    function handleFileDrop(e) {
+      const df = e.dataTransfer;
+      if (df && df.files && df.files.length > 0) {
+        document.getElementById('file-upload-input').files = df.files;
+        uploadToPC();
+      }
+    }
+
+    async function takeScreenshot() {
+      if (!serverBase) return toast('Set IP first!');
+      toast('📸 Capturing desktop...');
+      try {
+        const r = await fetch(serverBase + '/laptop/screenshot', { method: 'POST' });
+        if (!r.ok) throw new Error('Capture failed');
+        const blob = await r.blob();
+        document.getElementById('vision-img').src = URL.createObjectURL(blob);
+        document.getElementById('vision-preview').style.display = 'block';
+        toast('✅ Screenshot received!');
+      } catch (e) { toast('❌ ' + e.message); }
+    }
+
+    function toggleRecord() {
+      if (!serverBase) return toast('Set IP first!');
+      const btn = document.getElementById('record-btn');
+      const isRec = btn.innerText.includes('Stop');
+      btn.innerText = isRec ? '🔴 Record' : '⏹️ Stop Rec';
+      btn.style.background = isRec ? 'var(--red)' : 'var(--accent2)';
+      fetch(serverBase + '/laptop/record', { method: 'POST', body: JSON.stringify({ action: "toggle" }) })
+        .then(r => r.json())
+        .then(d => {
+          if (d.recording) {
+            toast('🔴 Recording started. Saving to OS drive!');
+            btn.innerText = '⏹️ Stop Rec';
+            btn.style.background = 'var(--accent2)';
+          } else {
+            toast('✅ Recording saved successfully.');
+            btn.innerText = '🔴 Record';
+            btn.style.background = 'var(--red)';
+          }
+        }).catch(e => toast('❌ Error: ' + e));
+    }
+
+    const defaultApps = [
+      { n: 'Spotify', c: 'spotify', ic: '🎵', col: 'green' },
+      { n: 'Chrome', c: 'google-chrome || start chrome', ic: '🌐', col: 'cyan' },
+      { n: 'VS Code', c: 'code', ic: '💻', col: 'purple' },
+      { n: 'Files', c: 'nautilus ~ || explorer', ic: '📁', col: 'cyan' },
+      { n: 'Discord', c: 'discord', ic: '🎮', col: 'red' },
+      { n: 'Firefox', c: 'firefox || start firefox', ic: '🦊', col: 'green' }
+    ];
+
+    function loadQuickApps() {
+      let apps = [];
+      try { apps = JSON.parse(STORE.get('quickapps') || '[]'); } catch (e) { }
+      if (!apps || !apps.length) apps = defaultApps;
+      const grid = document.getElementById('qlaunch-grid');
+      if (grid) {
+        grid.innerHTML = apps.map(a => `
+          <div class="cmd" data-color="${a.col}" onclick="launchApp('${a.c.replace(/'/g, "\\'")}')">
+            <div class="cmd-icon">${a.ic}</div>
+            <div class="cmd-name">${a.n}</div>
+          </div>
+        `).join('');
+      }
+    }
+
+    function editQuickApps() {
+      const current = STORE.get('quickapps') || JSON.stringify(defaultApps);
+      const res = window.prompt("Edit Quick Apps JSON matrix inline:", current);
+      if (res) {
+        STORE.set('quickapps', res);
+        loadQuickApps();
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => loadQuickApps());
 
     function killProcess(pid) {
       if (!confirm('Kill process ' + pid + '?')) return;

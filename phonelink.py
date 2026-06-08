@@ -19,6 +19,9 @@ from pathlib import Path
 IS_WIN = os.name == 'nt'
 
 _ffplay_proc = None
+_record_proc = None
+import socket as _socket
+import struct as _struct
 
 # ─────────────────────────── ANSI colours ────────────────────────────
 R  = "\033[1;31m"; G  = "\033[1;32m"; Y  = "\033[1;33m"
@@ -1732,6 +1735,179 @@ def cmd_web(args):
                         self.send_json({"ok": True})
                     except Exception as e:
                         self.send_json({"ok": False, "error": str(e)})
+
+                # ── Phase 8: Screenshot Viewer ───────────────────
+                elif path == "/laptop/screenshot":
+                    import tempfile
+                    tmp = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False)
+                    tmp.close()
+                    try:
+                        if IS_WIN:
+                            subprocess.run([
+                                "ffmpeg", "-y", "-f", "gdigrab", "-framerate", "1",
+                                "-i", "desktop", "-vframes", "1", "-q:v", "3", tmp.name
+                            ], capture_output=True, timeout=10)
+                        else:
+                            subprocess.run([
+                                "ffmpeg", "-y", "-f", "x11grab", "-framerate", "1",
+                                "-video_size", "1920x1080", "-i", os.environ.get("DISPLAY", ":0"),
+                                "-vframes", "1", "-q:v", "3", tmp.name
+                            ], capture_output=True, timeout=10)
+                        if os.path.exists(tmp.name) and os.path.getsize(tmp.name) > 0:
+                            self.send_response(200)
+                            self.send_header("Content-Type", "image/jpeg")
+                            self.end_headers()
+                            self.wfile.write(open(tmp.name, 'rb').read())
+                        else:
+                            self.send_json({"ok": False, "error": "capture failed"})
+                    except Exception as e:
+                        self.send_json({"ok": False, "error": str(e)})
+                    finally:
+                        try: os.unlink(tmp.name)
+                        except: pass
+
+                # ── Phase 8: Battery & System Stats ──────────────
+                elif path == "/laptop/stats":
+                    stats = {"battery": "N/A", "charging": False, "cpu_temp": "N/A", "uptime": "N/A"}
+                    if IS_WIN:
+                        rc, out, _ = run('powershell -NoProfile -Command "Get-WmiObject Win32_Battery | Select-Object EstimatedChargeRemaining, BatteryStatus | ConvertTo-Json"')
+                        if rc == 0 and out:
+                            try:
+                                d = json.loads(out)
+                                stats["battery"] = str(d.get("EstimatedChargeRemaining", "N/A")) + "%"
+                                stats["charging"] = d.get("BatteryStatus", 1) == 2
+                            except: pass
+                        rc2, out2, _ = run('powershell -NoProfile -Command "(Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime | Select-Object -ExpandProperty TotalMinutes"')
+                        if rc2 == 0 and out2:
+                            try:
+                                mins = int(float(out2.strip()))
+                                stats["uptime"] = f"{mins // 60}h {mins % 60}m"
+                            except: pass
+                    else:
+                        # Battery
+                        bat_path = Path("/sys/class/power_supply/BAT0/capacity")
+                        if bat_path.exists():
+                            stats["battery"] = bat_path.read_text().strip() + "%"
+                        chg_path = Path("/sys/class/power_supply/BAT0/status")
+                        if chg_path.exists():
+                            stats["charging"] = "Charging" in chg_path.read_text()
+                        # CPU temp
+                        temp_path = Path("/sys/class/thermal/thermal_zone0/temp")
+                        if temp_path.exists():
+                            try:
+                                raw = int(temp_path.read_text().strip())
+                                stats["cpu_temp"] = f"{raw / 1000:.1f}°C"
+                            except: pass
+                        # Uptime
+                        up_path = Path("/proc/uptime")
+                        if up_path.exists():
+                            try:
+                                secs = int(float(up_path.read_text().split()[0]))
+                                h, m = secs // 3600, (secs % 3600) // 60
+                                stats["uptime"] = f"{h}h {m}m"
+                            except: pass
+                    self.send_json({"ok": True, **stats})
+
+                # ── Phase 8: Remote Volume Slider ─────────────────
+                elif path == "/laptop/volume":
+                    content_length = int(self.headers.get("Content-Length", 0))
+                    body = self.rfile.read(content_length).decode('utf-8')
+                    try:
+                        data = json.loads(body)
+                        level = max(0, min(100, int(data.get("level", 50))))
+                        if IS_WIN:
+                            # PowerShell COM audio endpoint
+                            subprocess.run([
+                                "powershell", "-NoProfile", "-Command",
+                                f"$o=New-Object -ComObject WScript.Shell; " +
+                                f"1..50 | %{{ $o.SendKeys([char]174) }}; " +  # mute down fully
+                                f"1..{level // 2} | %{{ $o.SendKeys([char]175) }}"  # raise to target
+                            ], capture_output=True)
+                        else:
+                            if shutil.which("pactl"):
+                                subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{level}%"])
+                            elif shutil.which("amixer"):
+                                subprocess.run(["amixer", "set", "Master", f"{level}%"])
+                        self.send_json({"ok": True})
+                    except Exception as e:
+                        self.send_json({"ok": False, "error": str(e)})
+
+                # ── Phase 8: Notification Feed ────────────────────
+                elif path == "/laptop/notifications":
+                    notifs = []
+                    if IS_WIN:
+                        rc, out, _ = run('powershell -NoProfile -Command "Get-EventLog -LogName Application -Newest 5 | Select-Object TimeGenerated, Source, Message | ConvertTo-Json"', timeout=8)
+                        if rc == 0 and out:
+                            try:
+                                items = json.loads(out)
+                                if isinstance(items, dict): items = [items]
+                                for it in items[:5]:
+                                    notifs.append({"source": it.get("Source", ""), "message": str(it.get("Message", ""))[:120], "time": str(it.get("TimeGenerated", ""))})
+                            except: pass
+                    else:
+                        # Read recent journalctl user notifications
+                        rc, out, _ = run("journalctl --user -n 5 --no-pager -o short-iso -q 2>/dev/null || echo ''")
+                        if rc == 0 and out:
+                            for line in out.splitlines()[-5:]:
+                                parts = line.split(" ", 3)
+                                if len(parts) >= 4:
+                                    notifs.append({"time": parts[0], "source": parts[2].rstrip(":"), "message": parts[3][:120]})
+                    self.send_json({"ok": True, "notifs": notifs})
+
+                # ── Phase 8: Wake-on-LAN ─────────────────────────
+                elif path == "/laptop/wol":
+                    content_length = int(self.headers.get("Content-Length", 0))
+                    body = self.rfile.read(content_length).decode('utf-8')
+                    try:
+                        data = json.loads(body)
+                        mac = data.get("mac", "").replace(":", "").replace("-", "")
+                        if len(mac) != 12:
+                            self.send_json({"ok": False, "error": "Invalid MAC address"})
+                            return
+                        mac_bytes = bytes.fromhex(mac)
+                        magic = b'\xff' * 6 + mac_bytes * 16
+                        sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+                        sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_BROADCAST, 1)
+                        sock.sendto(magic, ('255.255.255.255', 9))
+                        sock.close()
+                        self.send_json({"ok": True})
+                    except Exception as e:
+                        self.send_json({"ok": False, "error": str(e)})
+
+                # ── Phase 8: Screen Recording Toggle ─────────────
+                elif path == "/laptop/record":
+                    content_length = int(self.headers.get("Content-Length", 0))
+                    body = self.rfile.read(content_length).decode('utf-8')
+                    data = json.loads(body) if body else {}
+                    action = data.get("action", "toggle")
+
+                    global _record_proc
+                    if _record_proc is not None and _record_proc.poll() is None:
+                        # Stop recording
+                        _record_proc.terminate()
+                        _record_proc.wait(timeout=5)
+                        _record_proc = None
+                        self.send_json({"ok": True, "recording": False})
+                    else:
+                        # Start recording
+                        rec_path = str(Path.home() / f"phonelink_recording_{int(time.time())}.mp4")
+                        try:
+                            if IS_WIN:
+                                _record_proc = subprocess.Popen([
+                                    "ffmpeg", "-y", "-f", "gdigrab", "-framerate", "15",
+                                    "-i", "desktop", "-c:v", "libx264", "-preset", "ultrafast",
+                                    "-crf", "28", rec_path
+                                ], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            else:
+                                _record_proc = subprocess.Popen([
+                                    "ffmpeg", "-y", "-f", "x11grab", "-framerate", "15",
+                                    "-video_size", "1920x1080", "-i", os.environ.get("DISPLAY", ":0"),
+                                    "-c:v", "libx264", "-preset", "ultrafast",
+                                    "-crf", "28", rec_path
+                                ], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            self.send_json({"ok": True, "recording": True, "path": rec_path})
+                        except Exception as e:
+                            self.send_json({"ok": False, "error": str(e)})
 
                 else:
                     self.send_text(f"Unknown POST route: {path}", 404)
