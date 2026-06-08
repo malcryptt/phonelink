@@ -1643,7 +1643,7 @@ def cmd_web(args):
                     # Instead of opening ffplay for every chunk, we should pipe it. 
                     # If global ffplay process doesn't exist, start it.
                     global _ffplay_proc
-                    if '_ffplay_proc' not in globals() or _ffplay_proc.poll() is not None:
+                    if _ffplay_proc is None or _ffplay_proc.poll() is not None:
                         _ffplay_proc = subprocess.Popen([
                             "ffplay", "-nodisp", "-autoexit", "-infbuf", "-"
                         ], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -1652,6 +1652,30 @@ def cmd_web(args):
                         _ffplay_proc.stdin.write(body)
                         _ffplay_proc.stdin.flush()
                         self.send_json({"ok": True, "bytes": len(body)})
+                    except Exception as e:
+                        self.send_json({"ok": False, "error": str(e)})
+
+                # ── Advanced Suite: Brightness Adjuster ──────────────
+                elif path == "/laptop/brightness":
+                    content_length = int(self.headers.get("Content-Length", 0))
+                    body = self.rfile.read(content_length).decode('utf-8')
+                    try:
+                        data = json.loads(body)
+                        level = max(0, min(100, int(data.get("level", 50))))
+                        
+                        if IS_WIN:
+                            subprocess.run([
+                                "powershell", "-NoProfile", "-Command",
+                                f"(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1, {level})"
+                            ])
+                        else:
+                            rc, out, _ = run("xrandr | grep ' connected'")
+                            if out:
+                                display = out.split()[0]
+                                float_level = level / 100.0
+                                subprocess.run(["xrandr", "--output", display, "--brightness", str(float_level)])
+                        
+                        self.send_json({"ok": True})
                     except Exception as e:
                         self.send_json({"ok": False, "error": str(e)})
 

@@ -855,6 +855,18 @@
 
   </main>
 
+  <!-- ──────────── LAPTOP BRIGHTNESS ──────────── -->
+  <div class="section-title">Laptop Brightness</div>
+  <div
+    style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:20px;">
+    <div style="display:flex;align-items:center;gap:15px;">
+      <span style="font-size:24px;">🔅</span>
+      <input type="range" id="brightnessSlider" min="5" max="100" value="50" style="flex:1; cursor:pointer;"
+        onchange="setBrightness(this.value)" oninput="this.title=this.value+'%'">
+      <span style="font-size:24px;">🔆</span>
+    </div>
+  </div>
+
   <!-- ──────────── MEDIA REMOTE ──────────── -->
   <div class="section-title">Media Remote</div>
   <div class="grid">
@@ -1436,6 +1448,23 @@
       btn.textContent = '⬆️ Send to ~/Downloads';
       btn.style.opacity = '1';
       btn.disabled = false;
+    }
+    function unlockPhone() {
+      fetch(serverBase + '/phone/wake')
+        .then(() => alert('Unlock attempt sent.'))
+        .catch(err => alert('Network error.'));
+    }
+
+    // --- Brightness Controller ---
+    let brightnessTid = null;
+    function setBrightness(val) {
+      if (brightnessTid) clearTimeout(brightnessTid);
+      brightnessTid = setTimeout(() => {
+        fetch(serverBase + '/laptop/brightness', {
+          method: 'POST',
+          body: JSON.stringify({ level: parseInt(val) })
+        }).catch(err => console.error("Brightness err:", err));
+      }, 100); // minimal debounce
     }
 
     // ── Two-Way Audio Intercom ─────────────────────────────
