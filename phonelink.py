@@ -216,6 +216,16 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="2a45", MODE="0666", GROUP="plugdev"
 SUBSYSTEM=="usb", ATTR{idVendor}=="2ae5", MODE="0666", GROUP="plugdev"
 SUBSYSTEM=="usb", ATTR{idVendor}=="22d9", MODE="0666", GROUP="plugdev"
 """
+    # Auto-detect connected USB devices to add dynamically to support all global devices
+    if not IS_WIN:
+        rc, out, _ = run("lsusb")
+        if rc == 0:
+            for line in out.splitlines():
+                if "ID " in line:
+                    vid = line.split("ID ")[1].split(":")[0].strip()
+                    if len(vid) == 4 and vid.isalnum():
+                        rules_content += f'SUBSYSTEM=="usb", ATTR{{idVendor}}=="{vid}", MODE="0666", GROUP="plugdev"\n'
+
     rules_path  = Path("/tmp/51-android.rules")
     script_path = Path("/tmp/apply_udev.sh")
     rules_path.write_text(rules_content)
@@ -471,7 +481,8 @@ def cmd_wifi(args):
     if rc != 0:
         log("err", f"Failed to set tcpip mode: {err}"); sys.exit(1)
 
-    time.sleep(2)
+    time.sleep(1)
+    adb("-s", serial, "wait-for-device")
 
     # Scan ALL interfaces via ip route (works for Wi-Fi, Mobile Data, hotspot)
     rc, out, err = adb("-s", serial, "shell", "ip route")
@@ -886,7 +897,9 @@ def cmd_web(args):
                     if is_usb and serial not in wireless_enabled:
                         log("wait", f"Auto-enabling wireless ADB on {serial}...")
                         adb("-s", serial, "tcpip", "5555")
-                        _time.sleep(2)
+                        _time.sleep(1)
+                        adb("-s", serial, "wait-for-device")
+                        
                         # Grab phone's hotspot IP from routing table
                         rc2, out2, _ = adb("-s", serial, "shell", "ip route")
                         phone_ip = None
@@ -1508,7 +1521,7 @@ def cmd_web(args):
                     self.send_header("Age", "0")
                     self.send_header("Cache-Control", "no-cache, private")
                     self.send_header("Pragma", "no-cache")
-                    self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+                    self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=ffmpeg")
                     self.end_headers()
 
                     # Spawning ffmpeg to pipe mpjpeg straight into the open HTTP stream socket
