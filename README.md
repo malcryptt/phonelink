@@ -4,10 +4,15 @@ Persistent USB Android connection tool (Linux & Windows), built for IoT and auto
 `phonelink` acts as a superset of `adb` and `scrcpy`, designed to keep Android phones permanently connected to a Linux host without dropping permissions, and providing easy-to-use commands for device automation.
 
 ## Features
-- **Auto-healing ADB:** Automatically diagnoses and applies udev rules for 40+ OEM vendor IDs to ensure Linux never drops USB permissions unexpectedly.
-- **Persistent Monitor:** Runs in the background, automatically restarting ADB and reconnecting to the phone if the USB connection bounces.
-- **Screen Mirroring:** Wraps `scrcpy` to instantly mirror the screen upon connection.
-- **Wireless ADB / Wi-Fi IoT:** Pair automatically over Wi-Fi so the phone can be disconnected from USB and placed anywhere (`phonelink wifi`).
+- **PhoneLink Web Dashboard:** Fully-featured unified command center UI accessible from your phone's browser.
+- **Remote Laptop Brightness:** Hardware-level laptop screen dimming natively driven via slider.
+- **Live Media StreamingSuite:**
+  - View a continuous low-latency Live Stream from the laptop's Webcam.
+  - **Two-Way Audio Intercom:** Speak into your phone and play it live out of your laptop's speakers, or listen to the laptop's microphone securely over Wi-Fi.
+- **Dynamic Cross-Platform Support:** Runs invisibly in the background on both Linux (systemd) and Windows (WMI/Startup).
+- **Auto-healing ADB:** Automatically captures USB connections, transitions to Wireless ADB silently on plug-in, and auto-detects dynamically generated `lsusb` hardware vendor IDs for universal Android compatibility.
+- **Persistent Monitor:** Tracks external network changes, dynamically pushes Chrome dashboard URLs directly onto your phone on-screen, and recovers broken disconnected endpoints automatically.
+- **Zero-Touch Wi-Fi ADB:** Automatically transitions newly connected USB wires into high-speed TCP/IP routing so the cable can instantly be thrown away (`phonelink watch`).
 - **IoT / Automation Toolkit:**
   - `phonelink wake`: Wakes the screen and attempts a swipe-to-unlock.
   - `phonelink app <pkg>`: Remotely launches any Android package.

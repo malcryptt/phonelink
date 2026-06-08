@@ -33,6 +33,18 @@ if ! command -v scrcpy &>/dev/null; then
     sudo snap install scrcpy 2>/dev/null || true
 fi
 
+# Make sure ffmpeg is installed for media streaming
+if ! command -v ffmpeg &>/dev/null; then
+  echo "  [!] ffmpeg not found. Installing …"
+  sudo apt-get install -y ffmpeg 2>/dev/null || true
+fi
+
+# Make sure xrandr is installed for Brightness adjuster
+if ! command -v xrandr &>/dev/null; then
+  echo "  [!] xrandr not found. Installing x11-xserver-utils …"
+  sudo apt-get install -y x11-xserver-utils 2>/dev/null || true
+fi
+
 # Apply udev rules so ADB survives reboots
 UDEV_FILE="/etc/udev/rules.d/51-android.rules"
 if [ ! -f "$UDEV_FILE" ]; then
