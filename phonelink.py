@@ -1679,6 +1679,60 @@ def cmd_web(args):
                     except Exception as e:
                         self.send_json({"ok": False, "error": str(e)})
 
+                # ── Advanced Suite: Remote Task Manager ──────────────
+                elif path == "/laptop/processes":
+                    procs = []
+                    if IS_WIN:
+                        rc, out, _ = run('powershell -NoProfile -Command "Get-Process | Sort-Object CPU -Descending | Select-Object -First 5 Id, Name, CPU, WorkingSet | ConvertTo-Json"')
+                        if rc == 0 and out:
+                            try:
+                                win_procs = json.loads(out)
+                                if isinstance(win_procs, dict):
+                                    win_procs = [win_procs]
+                                for p in win_procs:
+                                    cpu_val = round(p.get("CPU", 0), 1) if p.get("CPU") else 0
+                                    mem_mb = round(p.get("WorkingSet", 0) / 1024 / 1024, 1)
+                                    procs.append({"pid": p.get("Id"), "name": p.get("Name"), "cpu": str(cpu_val), "mem": f"{mem_mb} MB"})
+                            except: pass
+                    else:
+                        rc, out, _ = run("ps -eo pid,pcpu,pmem,comm --sort=-pcpu | head -n 6")
+                        if rc == 0:
+                            for line in out.splitlines()[1:]:
+                                parts = line.split(maxsplit=3)
+                                if len(parts) >= 4:
+                                    procs.append({"pid": parts[0], "cpu": parts[1] + "%", "mem": parts[2] + "%", "name": parts[3].strip()})
+                    self.send_json({"ok": True, "procs": procs})
+
+                # ── Advanced Suite: Process Killer ───────────────────
+                elif path == "/laptop/kill":
+                    content_length = int(self.headers.get("Content-Length", 0))
+                    body = self.rfile.read(content_length).decode('utf-8')
+                    try:
+                        data = json.loads(body)
+                        pid = data.get("pid")
+                        if IS_WIN:
+                            subprocess.run(["taskkill", "/F", "/PID", str(pid)])
+                        else:
+                            subprocess.run(["kill", "-9", str(pid)])
+                        self.send_json({"ok": True})
+                    except Exception as e:
+                        self.send_json({"ok": False, "error": str(e)})
+
+                # ── Advanced Suite: App Launcher ─────────────────────
+                elif path == "/laptop/launch":
+                    content_length = int(self.headers.get("Content-Length", 0))
+                    body = self.rfile.read(content_length).decode('utf-8')
+                    try:
+                        data = json.loads(body)
+                        app = data.get("app")
+                        if IS_WIN:
+                            subprocess.Popen(["powershell", "-NoProfile", "Start-Process", app], start_new_session=True)
+                        else:
+                            subprocess.Popen(app, shell=True, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        self.send_json({"ok": True})
+                    except Exception as e:
+                        self.send_json({"ok": False, "error": str(e)})
+
                 else:
                     self.send_text(f"Unknown POST route: {path}", 404)
             except Exception as exc:

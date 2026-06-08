@@ -904,6 +904,56 @@
     </div>
   </div>
 
+  <!-- ──────────── SYSTEM HEALTH ──────────── -->
+  <div class="section-title">System Health</div>
+  <div
+    style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:20px;overflow-x:auto;">
+    <table id="proc-table" style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead>
+        <tr style="color:var(--muted);text-align:left;border-bottom:1px solid var(--border);">
+          <th style="padding:8px 6px;">Process</th>
+          <th style="padding:8px 6px;">CPU</th>
+          <th style="padding:8px 6px;">MEM</th>
+          <th style="padding:8px 6px;"></th>
+        </tr>
+      </thead>
+      <tbody id="proc-body">
+        <tr>
+          <td colspan="4" style="padding:12px;color:var(--muted);text-align:center;">Loading…</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ──────────── QUICK LAUNCH ──────────── -->
+  <div class="section-title">Quick Launch</div>
+  <div class="grid">
+    <div class="cmd" data-color="green" onclick="launchApp('spotify')">
+      <div class="cmd-icon">🎵</div>
+      <div class="cmd-name">Spotify</div>
+    </div>
+    <div class="cmd" data-color="cyan" onclick="launchApp('google-chrome || start chrome')">
+      <div class="cmd-icon">🌐</div>
+      <div class="cmd-name">Chrome</div>
+    </div>
+    <div class="cmd" data-color="purple" onclick="launchApp('code')">
+      <div class="cmd-icon">💻</div>
+      <div class="cmd-name">VS Code</div>
+    </div>
+    <div class="cmd" data-color="cyan" onclick="launchApp('nautilus ~ || explorer')">
+      <div class="cmd-icon">📁</div>
+      <div class="cmd-name">Files</div>
+    </div>
+    <div class="cmd" data-color="red" onclick="launchApp('discord')">
+      <div class="cmd-icon">🎮</div>
+      <div class="cmd-name">Discord</div>
+    </div>
+    <div class="cmd" data-color="green" onclick="launchApp('firefox || start firefox')">
+      <div class="cmd-icon">🦊</div>
+      <div class="cmd-name">Firefox</div>
+    </div>
+  </div>
+
   <!-- ──────────── LAPTOP WEBCAM ──────────── -->
   <div class="section-title">Laptop Webcam</div>
   <div style="display:flex;gap:10px;margin-bottom:10px;">
@@ -1260,6 +1310,7 @@
       STORE.set('server', raw);
       ping();
       startPoll();
+      startProcMonitor();
     }
 
     async function ping() {
@@ -1465,6 +1516,54 @@
           body: JSON.stringify({ level: parseInt(val) })
         }).catch(err => console.error("Brightness err:", err));
       }, 100); // minimal debounce
+    }
+
+    // --- System Health Process Monitor ---
+    let procInterval = null;
+    function refreshProcesses() {
+      if (!serverBase) return;
+      fetch(serverBase + '/laptop/processes', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+          const tbody = document.getElementById('proc-body');
+          if (!data.ok || !data.procs || data.procs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" style="padding:12px;color:var(--muted);text-align:center;">No processes</td></tr>';
+            return;
+          }
+          tbody.innerHTML = data.procs.map(p => `
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:8px 6px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${p.name}</td>
+              <td style="padding:8px 6px;color:var(--accent);">${p.cpu}</td>
+              <td style="padding:8px 6px;color:var(--purple);">${p.mem}</td>
+              <td style="padding:8px 6px;"><button onclick="killProcess('${p.pid}')" style="background:var(--red);color:#fff;border:none;border-radius:8px;padding:4px 10px;font-size:11px;cursor:pointer;">Kill</button></td>
+            </tr>
+          `).join('');
+        })
+        .catch(() => { });
+    }
+    // Start polling when serverBase is set
+    function startProcMonitor() {
+      if (procInterval) clearInterval(procInterval);
+      refreshProcesses();
+      procInterval = setInterval(refreshProcesses, 5000);
+    }
+
+    function killProcess(pid) {
+      if (!confirm('Kill process ' + pid + '?')) return;
+      fetch(serverBase + '/laptop/kill', {
+        method: 'POST',
+        body: JSON.stringify({ pid: pid })
+      }).then(() => { toast('Process ' + pid + ' terminated.'); refreshProcesses(); })
+        .catch(err => toast('Kill failed: ' + err));
+    }
+
+    function launchApp(app) {
+      if (!serverBase) { toast('Set IP first!'); return; }
+      fetch(serverBase + '/laptop/launch', {
+        method: 'POST',
+        body: JSON.stringify({ app: app })
+      }).then(() => toast('Launched: ' + app))
+        .catch(err => toast('Launch failed: ' + err));
     }
 
     // ── Two-Way Audio Intercom ─────────────────────────────
