@@ -1,5 +1,5 @@
 // PhoneLink Service Worker — enables offline PWA + Add to Home Screen
-const CACHE_NAME = 'phonelink-v1';
+const CACHE_NAME = 'phonelink-v2';
 const ASSETS = [
     './',
     './phone_ui.html',
@@ -37,10 +37,13 @@ self.addEventListener('fetch', e => {
         url.pathname.startsWith('/forward') || url.pathname.startsWith('/type') ||
         url.pathname.startsWith('/app') || url.pathname.startsWith('/disconnect') ||
         url.pathname.startsWith('/power') || url.pathname.startsWith('/clip') ||
-        url.pathname.startsWith('/cam') || url.pathname.startsWith('/macro') ||
+        url.pathname.startsWith('/cam') || url.pathname.startsWith('/cam_stream') || url.pathname.startsWith('/macro') ||
         url.pathname.startsWith('/stealth') || url.pathname.startsWith('/bug') ||
         url.pathname.startsWith('/2fa') || url.pathname.startsWith('/gps') ||
-        url.pathname.startsWith('/notifs') || url.pathname.startsWith('/ui-dump')
+        url.pathname.startsWith('/notifs') || url.pathname.startsWith('/ui-dump') ||
+        url.pathname.startsWith('/laptop') || url.pathname.startsWith('/logs') ||
+        url.pathname.startsWith('/net') || url.pathname.startsWith('/screen') ||
+        url.pathname.startsWith('/phone/')
     ) {
         return; // Let API requests pass through to the network
     }

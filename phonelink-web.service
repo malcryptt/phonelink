@@ -1,0 +1,16 @@
+[Unit]
+Description=PhoneLink Web Server
+After=network.target
+
+[Service]
+Environment="DISPLAY=:0"
+Environment="XAUTHORITY=/home/mal4crypt404/.Xauthority"
+Environment="PULSE_SERVER=unix:/run/user/1000/pulse/native"
+Environment="PATH=/snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/home/mal4crypt404/phonelink/phonelink/phonelink.py web --port 8000
+WorkingDirectory=/home/mal4crypt404/phonelink/phonelink
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

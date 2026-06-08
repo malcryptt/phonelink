@@ -1,0 +1,8 @@
+[Unit]
+Description=PhoneLink Auto WiFi ADB Trigger
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/mal4crypt404/phonelink/phonelink/phonelink.py wifi
+WorkingDirectory=/home/mal4crypt404/phonelink/phonelink

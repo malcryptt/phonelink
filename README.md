@@ -1,5 +1,5 @@
 # phonelink
-Persistent USB Android connection tool for Linux, built for IoT and automation.
+Persistent USB Android connection tool (Linux & Windows), built for IoT and automation.
 
 `phonelink` acts as a superset of `adb` and `scrcpy`, designed to keep Android phones permanently connected to a Linux host without dropping permissions, and providing easy-to-use commands for device automation.
 
@@ -20,17 +20,27 @@ Persistent USB Android connection tool for Linux, built for IoT and automation.
 
 ## Installation
 
-**Via pip (Recommended):**
+**Cross-Platform Python Install (Recommended):**
 ```bash
 pip install phonelink-cli
-# Or from source:
+# Or from source directory:
 pip install .
 ```
 
-**Manual script install:**
+### Windows Setup
+1. **Install Dependencies (The fast way):** Open an Administrator PowerShell and run:
+   ```powershell
+   winget install Gyan.FFmpeg
+   winget install Genymobile.scrcpy
+   winget install Google.PlatformTools
+   ```
+   *(Alternatively, if you use Chocolatey: `choco install scrcpy adb ffmpeg -y`)*
+2. **Install the Web Daemon:** Double-click `install_windows.bat` located in the source code folder. This will automatically generate a hidden `.vbs` runner inside your Windows Startup folder so the Web Dashboard daemon safely boots silently in the background every time you turn your PC on without opening annoying CMD windows.
+
+### Linux Setup (Alternative)
 ```bash
 chmod +x install.sh
-./install.sh
+sudo ./install.sh
 ```
 
 ## Quick Start

@@ -16,6 +16,10 @@ import re
 import json
 from pathlib import Path
 
+IS_WIN = os.name == 'nt'
+
+_ffplay_proc = None
+
 # ─────────────────────────── ANSI colours ────────────────────────────
 R  = "\033[1;31m"; G  = "\033[1;32m"; Y  = "\033[1;33m"
 B  = "\033[1;34m"; M  = "\033[1;35m"; C  = "\033[1;36m"
@@ -39,6 +43,19 @@ def log(level, msg):
              "wait": f"{M}[~]{RST}"}
     print(f" {icons.get(level, '[?]')} {msg}")
 
+def get_win_device(dev_type="video"):
+    """Parses `ffmpeg -list_devices true -f dshow -i dummy` to find exactly the string name of the first available DirectShow device."""
+    try:
+        out = subprocess.check_output(["ffmpeg", "-list_devices", "true", "-f", "dshow", "-i", "dummy"], stderr=subprocess.STDOUT, text=True)
+        for line in out.splitlines():
+            if f'DirectShow {dev_type} devices' in line:
+                continue
+            if 'dshow' in line and '"' in line:
+                return line.split('"')[1]
+    except Exception:
+        pass
+    return None
+
 def run(cmd, capture=True, timeout=15):
     """Run a shell command, return (returncode, stdout, stderr)."""
     try:
@@ -58,10 +75,11 @@ def adb(*args, timeout=15):
     """Run an adb command."""
     return run(["adb"] + list(args), timeout=timeout)
 
-def require_adb():
+def require_adb(allow_empty=False):
     if not shutil.which("adb"):
         log("err", "adb not found. Install with:  sudo apt install adb")
-        sys.exit(1)
+        if not allow_empty:
+            sys.exit(1)
 
 # ─────────────────────────── ADB Server ──────────────────────────────
 
@@ -432,11 +450,16 @@ def cmd_net(args):
         os.system(f"gnirehtet run {serial}")
     else:
         log("warn", "Reverse tethering requires 'gnirehtet'.")
-        log("info", "To install on Linux:")
-        print(f"      {DIM}wget https://github.com/Genymobile/gnirehtet/releases/download/v2.5/gnirehtet-rust-linux64-v2.5.zip{RST}")
-        print(f"      {DIM}unzip gnirehtet-rust-linux64-v2.5.zip{RST}")
-        print(f"      {DIM}sudo cp gnirehtet-rust-linux64/gnirehtet /usr/local/bin/{RST}")
-        print(f"      {DIM}sudo chmod +x /usr/local/bin/gnirehtet{RST}")
+        if IS_WIN:
+            log("info", "To install on Windows:")
+            print(f"      {DIM}1. Download from https://github.com/Genymobile/gnirehtet/releases/download/v2.5/gnirehtet-rust-win64-v2.5.zip{RST}")
+            print(f"      {DIM}2. Extract the zip and place 'gnirehtet.exe' anywhere in your system PATH.{RST}")
+        else:
+            log("info", "To install on Linux:")
+            print(f"      {DIM}wget https://github.com/Genymobile/gnirehtet/releases/download/v2.5/gnirehtet-rust-linux64-v2.5.zip{RST}")
+            print(f"      {DIM}unzip gnirehtet-rust-linux64-v2.5.zip{RST}")
+            print(f"      {DIM}sudo cp gnirehtet-rust-linux64/gnirehtet /usr/local/bin/{RST}")
+            print(f"      {DIM}sudo chmod +x /usr/local/bin/gnirehtet{RST}")
         print("\nOnce installed, re-run: phonelink net")
 
 def cmd_wifi(args):
@@ -780,18 +803,118 @@ def cmd_power(args):
 
 def cmd_web(args):
     """Full REST API + Phone UI server for wireless control."""
-    require_adb()
-    serial = get_first_device()
+    require_adb(allow_empty=True)
     port   = args.port
+
+    # Ensure snap binaries (scrcpy, etc.) are on PATH for Linux
+    if not IS_WIN:
+        snap_bin = "/snap/bin"
+        if snap_bin not in os.environ.get("PATH", ""):
+            os.environ["PATH"] = snap_bin + ":" + os.environ.get("PATH", "")
+    else:
+        # Prevent Windows cmd encoding bugs from crashing adb output parsing
+        os.environ["PYTHONIOENCODING"] = "utf-8"
 
     # Find the phone_ui.html file next to this script
     ui_path = Path(__file__).parent / "phone_ui.html"
 
+    # Initialize persistent xdotool pipe for lag-free remote trackpad
+    xdotool_proc = None
+    if shutil.which("xdotool"):
+        xdotool_proc = subprocess.Popen(["xdotool", "-"], stdin=subprocess.PIPE, text=True)
+
+    # ── Auto-detect primary LAN IP ──────────────────────────
+    import socket as _sock
+    def _get_lan_ip():
+        try:
+            s = _sock.socket(_sock.AF_INET, _sock.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception:
+            return "127.0.0.1"
+
     log("info",  f"Starting PhoneLink API server on port {port}")
-    log("ok",    f"Open on your LAPTOP:  http://localhost:{port}")
-    if ui_path.exists():
-        log("ok", f"Open on your PHONE:   file://{ui_path}  (works offline!)")
     log("wait", "Press Ctrl+C to stop\n")
+
+    # ── Persistent ADB Auto-Launch Daemon ─────────────────
+    import threading
+    def _auto_launch_browser():
+        """Self-healing ADB daemon: auto-detect USB, auto-transition to wireless,
+        track IP changes, and re-push Chrome intent on IP shift."""
+        import time as _time
+        notified_devices = set()    # serials we already launched Chrome on
+        wireless_enabled = set()    # USB serials we already set to tcpip 5555
+        last_known_ip = None        # track laptop IP for change detection
+        last_wireless_ip = None     # last phone IP for auto-reconnect
+
+        while True:
+            _time.sleep(2)  # fast 2s polling for near-instant detection
+            try:
+                # Keep the ADB server alive — silently revives it if it died
+                subprocess.run(["adb", "start-server"], capture_output=True, timeout=5)
+
+                curr_ip = _get_lan_ip()
+
+                # ── IP Change Detection ──────────────────────────
+                if last_known_ip and curr_ip != last_known_ip and curr_ip != "127.0.0.1":
+                    log("warn", f"IP changed! {last_known_ip} → {curr_ip}")
+                    # Re-push intent to ALL connected devices
+                    notified_devices.clear()
+                last_known_ip = curr_ip
+
+                rc, out, _ = adb("devices")
+                lines = [l for l in out.strip().splitlines()[1:] if "device" in l and "offline" not in l]
+                current_serials = {line.split()[0] for line in lines}
+
+                # ── Cleanup disconnected devices ─────────────────
+                notified_devices.intersection_update(current_serials)
+                wireless_enabled.intersection_update(current_serials)
+
+                # ── Auto-reconnect wireless if all devices lost ──
+                if not current_serials and last_wireless_ip:
+                    # Use timeout so a dead phone IP doesn't stall the loop
+                    subprocess.run(["adb", "connect", f"{last_wireless_ip}:5555"],
+                                   capture_output=True, timeout=3)
+                    continue
+
+                for serial in current_serials:
+                    is_usb = ":" not in serial  # USB serials have no colon
+
+                    # ── Auto-enable wireless ADB on USB devices ──
+                    if is_usb and serial not in wireless_enabled:
+                        log("wait", f"Auto-enabling wireless ADB on {serial}...")
+                        adb("-s", serial, "tcpip", "5555")
+                        _time.sleep(2)
+                        # Grab phone's hotspot IP from routing table
+                        rc2, out2, _ = adb("-s", serial, "shell", "ip route")
+                        phone_ip = None
+                        for rline in out2.splitlines():
+                            if 'src ' in rline:
+                                candidate = rline.split('src ')[-1].split()[0].strip()
+                                if not candidate.startswith('127.') and not candidate.startswith('169.254.'):
+                                    phone_ip = candidate
+                                    if any(candidate.startswith(p) for p in ('192.168.', '10.', '172.')):
+                                        break
+                        if phone_ip:
+                            adb("connect", f"{phone_ip}:5555")
+                            last_wireless_ip = phone_ip
+                            log("ok", f"Wireless bridge locked → {phone_ip}:5555")
+                        wireless_enabled.add(serial)
+
+                    # ── Push Chrome intent for new connections ────
+                    if serial not in notified_devices and curr_ip != "127.0.0.1":
+                        curr_url = f"http://{curr_ip}:{port}"
+                        log("ok", f"Launching dashboard on {serial} → {curr_url}")
+                        adb("-s", serial, "shell", "am", "start", "-a",
+                            "android.intent.action.VIEW", "-d", curr_url)
+                        notified_devices.add(serial)
+
+            except Exception:
+                pass  # never crash the daemon
+
+    threading.Thread(target=_auto_launch_browser, daemon=True).start()
 
     import http.server
     import socketserver
@@ -850,6 +973,9 @@ def cmd_web(args):
             path = urllib.parse.unquote(self.path.split("?")[0])
             parts = [p for p in path.split("/") if p]
 
+            devs = get_devices()
+            serial = devs[0][0] if devs else "none"
+
             try:
                 # ── Serve phone panel ──────────────────────────────
                 if path in ("/", "/ui"):
@@ -892,9 +1018,9 @@ def cmd_web(args):
 
                 # ── Wake ───────────────────────────────────────────
                 elif path == "/wake":
-                    adb("-s", serial, "shell", "input keyevent 26")
+                    adb("-s", serial, "shell", "input keyevent 224")
                     time.sleep(0.4)
-                    adb("-s", serial, "shell", "input swipe 540 1200 540 600 300")
+                    adb("-s", serial, "shell", "input swipe 500 1500 500 200 300")
                     self.send_text("OK: wake")
 
                 # ── Screenshot ─────────────────────────────────────
@@ -909,8 +1035,19 @@ def cmd_web(args):
 
                 # ── Screen mirror ──────────────────────────────────
                 elif path == "/screen":
-                    subprocess.Popen(["scrcpy", "-s", serial], start_new_session=True)
-                    self.send_text("OK: screen")
+                    scrcpy_path = shutil.which("scrcpy")
+                    if not scrcpy_path and not IS_WIN:
+                         scrcpy_path = "/snap/bin/scrcpy"
+                    
+                    env = os.environ.copy()
+                    if not IS_WIN:
+                        env["DISPLAY"] = os.environ.get("DISPLAY", ":0")
+                        env["XAUTHORITY"] = os.environ.get("XAUTHORITY", os.path.expanduser("~/.Xauthority"))
+                        env["PATH"]    = "/snap/bin:/usr/local/bin:/usr/bin:/bin"
+                    
+                    subprocess.Popen([scrcpy_path, "-s", serial],
+                                     start_new_session=True, env=env)
+                    self.send_text("OK: screen mirror launched on laptop")
 
                 # ── Fix ────────────────────────────────────────────
                 elif path == "/fix":
@@ -991,7 +1128,9 @@ def cmd_web(args):
                 elif len(parts) >= 3 and parts[0] == "forward":
                     local = parts[1]
                     remote = urllib.parse.unquote_plus(parts[2])
-                    subprocess.Popen(["phonelink", "forward", local, remote], start_new_session=True)
+                    import sys
+                    script_path = str(Path(__file__).resolve())
+                    subprocess.Popen([sys.executable, script_path, "forward", local, remote], start_new_session=True)
                     self.send_text(f"OK: port {local} forwarded to {remote}")
 
                 # ── Type injection ─────────────────────────────────
@@ -1020,6 +1159,7 @@ def cmd_web(args):
                     adb("-s", serial, "shell",
                         f"am start -a android.intent.action.SENDTO -d sms:{phone} --es sms_body '{msg}'")
                     time.sleep(1)
+                    adb("-s", serial, "shell", "input keyevent 22")
                     adb("-s", serial, "shell", "input keyevent 66")
                     self.send_text(f"OK: sms to {phone}")
 
@@ -1030,7 +1170,9 @@ def cmd_web(args):
                     self.send_text(f"OK: {path[1:]}")
 
                 elif path == "/call_audio":
-                    subprocess.Popen(["phonelink", "call", "audio"], start_new_session=True)
+                    import sys
+                    script_path = str(Path(__file__).resolve())
+                    subprocess.Popen([sys.executable, script_path, "call", "audio"], start_new_session=True)
                     self.send_text("OK: streaming call audio to laptop")
 
                 # ── Volume Control ─────────────────────────────────
@@ -1039,41 +1181,50 @@ def cmd_web(args):
                     adb("-s", serial, "shell", f"input keyevent {kmap[path]}")
                     self.send_text(f"OK: {path[1:]}")
 
-                # ── Flashlight ─────────────────────────────────────
-                elif path in ("/flash/on", "/flash/off"):
-                    on = "true" if path == "/flash/on" else "false"
-                    # Try Android 10+ standard way:
-                    adb("-s", serial, "shell", f"cmd media.camera setTorchMode 0 {on}")
-                    self.send_text(f"OK: flashlight {on}")
+
 
                 # ── Inbox ──────────────────────────────────────────
                 elif path == "/inbox":
-                    subprocess.Popen(["phonelink", "inbox"], start_new_session=True)
+                    import sys
+                    script_path = str(Path(__file__).resolve())
+                    subprocess.Popen([sys.executable, script_path, "inbox"], start_new_session=True)
                     self.send_text("OK: dumped inbox to laptop terminal")
 
                 # ── Advanced Tools ─────────────────────────────────
                 elif path == "/cam":
-                    subprocess.Popen(["phonelink", "cam"], start_new_session=True)
+                    import sys
+                    script_path = str(Path(__file__).resolve())
+                    subprocess.Popen([sys.executable, script_path, "cam"], start_new_session=True)
                     self.send_text("OK: stealth camera triggered on laptop")
 
                 elif path == "/clip-sync":
-                    subprocess.Popen(["phonelink", "clip-sync"], start_new_session=True)
+                    import sys
+                    script_path = str(Path(__file__).resolve())
+                    subprocess.Popen([sys.executable, script_path, "clip-sync"], start_new_session=True)
                     self.send_text("OK: clipboard sync daemon started on laptop")
 
                 elif path == "/macro-rec":
-                    subprocess.Popen(["phonelink", "macro-rec"], start_new_session=True)
+                    import sys
+                    script_path = str(Path(__file__).resolve())
+                    subprocess.Popen([sys.executable, script_path, "macro-rec"], start_new_session=True)
                     self.send_text("OK: python macro template generated on laptop")
 
                 elif path == "/stealth":
-                    subprocess.Popen(["phonelink", "stealth"], start_new_session=True)
+                    import sys
+                    script_path = str(Path(__file__).resolve())
+                    subprocess.Popen([sys.executable, script_path, "stealth"], start_new_session=True)
                     self.send_text("OK: stealth mirror started on laptop")
 
                 elif path == "/bug":
-                    subprocess.Popen(["phonelink", "bug"], start_new_session=True)
+                    import sys
+                    script_path = str(Path(__file__).resolve())
+                    subprocess.Popen([sys.executable, script_path, "bug"], start_new_session=True)
                     self.send_text("OK: microphone bug planted, listening on laptop")
 
                 elif path == "/2fa":
-                    subprocess.Popen(["phonelink", "2fa"], start_new_session=True)
+                    import sys
+                    script_path = str(Path(__file__).resolve())
+                    subprocess.Popen([sys.executable, script_path, "2fa"], start_new_session=True)
                     self.send_text("OK: 2FA intercept daemon started on laptop")
 
                 # ── Kill Switch ────────────────────────────────────
@@ -1107,13 +1258,19 @@ def cmd_web(args):
 
                 # ── Net (reverse tether) ───────────────────────────
                 elif path == "/net":
-                    subprocess.Popen(["gnirehtet", "run", serial], start_new_session=True)
-                    self.send_text("OK: reverse tether started (gnirehtet)")
+                    gpath = shutil.which("gnirehtet")
+                    if gpath:
+                        subprocess.Popen([gpath, "run", serial], start_new_session=True)
+                        self.send_text("OK: reverse tether started (gnirehtet)")
+                    else:
+                        self.send_text("ERR: gnirehtet not found on laptop", 500)
 
                 # ── Wifi ───────────────────────────────────────────
                 elif path == "/wifi":
-                    adb("-s", serial, "tcpip", "5555")
-                    self.send_text("OK: tcpip mode enabled, unplug USB")
+                    import sys
+                    script_path = str(Path(__file__).resolve())
+                    subprocess.Popen([sys.executable, script_path, "wifi"], start_new_session=True)
+                    self.send_text("OK: enabling wireless ADB, you can unplug USB")
 
                 # ── Macro example ──────────────────────────────────
                 elif path == "/macro/example":
@@ -1126,13 +1283,21 @@ def cmd_web(args):
 
                 # ── Power Control (Laptop) ─────────────────────────
                 elif path in ("/laptop/reboot", "/laptop/shutdown"):
-                    cmd = "reboot -f" if "reboot" in path else "poweroff -f"
-                    self.send_text(f"OK: laptop {cmd}")
-                    subprocess.Popen(f"echo 'ThetaskmasteR17' | sudo -S {cmd}", shell=True, start_new_session=True)
+                    if IS_WIN:
+                        cmd = "shutdown /r /t 0" if "reboot" in path else "shutdown /s /t 0"
+                        self.send_text(f"OK: laptop {path.split('/')[-1]}")
+                        subprocess.Popen(cmd, shell=True, start_new_session=True)
+                    else:
+                        cmd = "reboot -f" if "reboot" in path else "poweroff -f"
+                        self.send_text(f"OK: laptop {cmd}")
+                        subprocess.Popen(f"echo 'ThetaskmasteR17' | sudo -S {cmd}", shell=True, start_new_session=True)
 
                 elif path == "/laptop/lock":
                     self.send_text("OK: laptop locked")
-                    subprocess.Popen("loginctl lock-session || xdg-screensaver lock || gnome-screensaver-command -l", shell=True, start_new_session=True)
+                    if IS_WIN:
+                        subprocess.Popen("rundll32.exe user32.dll,LockWorkStation", shell=True, start_new_session=True)
+                    else:
+                        subprocess.Popen("loginctl lock-session || xdg-screensaver lock || gnome-screensaver-command -l", shell=True, start_new_session=True)
 
                 elif path == "/laptop/unlock":
                     self.send_text("OK: laptop unlocked")
@@ -1142,10 +1307,18 @@ def cmd_web(args):
                     parts = path.split("/")
                     if parts[3] == "move":
                         dx, dy = parts[4], parts[5]
-                        subprocess.Popen(f"xdotool mousemove_relative -- {dx} {dy}", shell=True)
+                        if xdotool_proc:
+                            xdotool_proc.stdin.write(f"mousemove_relative -- {dx} {dy}\n")
+                            xdotool_proc.stdin.flush()
+                        else:
+                            subprocess.Popen(f"xdotool mousemove_relative -- {dx} {dy}", shell=True)
                         self.send_text("OK: mouse moved")
                     elif parts[3] == "click":
-                        subprocess.Popen("xdotool click 1", shell=True)
+                        if xdotool_proc:
+                            xdotool_proc.stdin.write("click 1\n")
+                            xdotool_proc.stdin.flush()
+                        else:
+                            subprocess.Popen("xdotool click 1", shell=True)
                         self.send_text("OK: mouse clicked")
 
                 elif path.startswith("/laptop/term/"):
@@ -1153,6 +1326,251 @@ def cmd_web(args):
                     self.send_text(f"OK: executed '{raw_cmd}'")
                     subprocess.Popen(raw_cmd, shell=True, start_new_session=True)
 
+                # ── Media Keys ─────────────────────────────────────
+                elif path.startswith("/laptop/key/"):
+                    keyname = urllib.parse.unquote_plus(path.split("/laptop/key/")[1])
+                    if xdotool_proc:
+                        xdotool_proc.stdin.write(f"key {keyname}\n")
+                        xdotool_proc.stdin.flush()
+                    else:
+                        subprocess.Popen(f"xdotool key {keyname}", shell=True)
+                    self.send_text(f"OK: key {keyname}")
+
+                # ── Scroll wheel ───────────────────────────────────
+                elif path.startswith("/laptop/scroll/"):
+                    amount = path.split("/laptop/scroll/")[1]
+                    btn = "4" if int(amount) < 0 else "5"  # 4=up, 5=down
+                    clicks = abs(int(amount))
+                    for _ in range(min(clicks, 20)):
+                        if xdotool_proc:
+                            xdotool_proc.stdin.write(f"click {btn}\n")
+                            xdotool_proc.stdin.flush()
+                        else:
+                            subprocess.Popen(f"xdotool click {btn}", shell=True)
+                    self.send_text(f"OK: scrolled {amount}")
+
+                # ── Right-click ────────────────────────────────────
+                elif path == "/laptop/mouse/rightclick":
+                    if xdotool_proc:
+                        xdotool_proc.stdin.write("click 3\n")
+                        xdotool_proc.stdin.flush()
+                    else:
+                        subprocess.Popen("xdotool click 3", shell=True)
+                    self.send_text("OK: right-clicked")
+
+                # ── Laptop Webcam Snapshot ─────────────────────────
+                elif path == "/laptop/cam":
+                    import tempfile
+                    cam_path = Path(tempfile.gettempdir()) / "phonelink_cam.jpg"
+                    if IS_WIN:
+                        cam_name = get_win_device("video")
+                        if cam_name:
+                            cmd = ["ffmpeg", "-y", "-f", "dshow", "-i", f'video={cam_name}', "-frames:v", "1", str(cam_path)]
+                        else:
+                            self.send_text("No DirectShow camera found on Windows", 500)
+                            return
+                    else:
+                        cmd = ["ffmpeg", "-y", "-f", "v4l2", "-i", "/dev/video0", "-frames:v", "1", str(cam_path)]
+                    
+                    rc = subprocess.run(cmd, capture_output=True, timeout=10).returncode
+                    if rc == 0 and cam_path.exists():
+                        data = cam_path.read_bytes()
+                        self.send_response(200)
+                        self.send_header("Content-Type", "image/jpeg")
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.send_header("Content-Length", str(len(data)))
+                        self.end_headers()
+                        self.wfile.write(data)
+                        return
+                    else:
+                        self.send_text("Failed to capture webcam (no /dev/video0?)", 500)
+
+                # ── List files in ~/Downloads for phone to browse ──
+                elif path == "/laptop/files":
+                    dl_dir = Path.home() / "Downloads"
+                    if dl_dir.exists():
+                        files = sorted([f.name for f in dl_dir.iterdir() if f.is_file()], reverse=True)[:30]
+                        self.send_json({"files": files})
+                    else:
+                        self.send_json({"files": []})
+
+                # ── Download a file from laptop to phone ───────────
+                elif path.startswith("/laptop/download/"):
+                    fname = urllib.parse.unquote_plus(path.split("/laptop/download/")[1])
+                    fpath = Path.home() / "Downloads" / fname
+                    if fpath.exists() and fpath.is_file():
+                        data = fpath.read_bytes()
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/octet-stream")
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.send_header("Content-Disposition", f'attachment; filename="{fname}"')
+                        self.send_header("Content-Length", str(len(data)))
+                        self.end_headers()
+                        self.wfile.write(data)
+                        return
+                    else:
+                        self.send_text("File not found", 404)
+
+                # ── Clipboard: pull phone → laptop ─────────────────
+                elif path == "/clip/pull":
+                    rc, out, _ = adb("-s", serial, "shell", "am broadcast -a clipper.get 2>/dev/null || "
+                                     "content query --uri content://com.android.shell.clipboard 2>/dev/null || echo ''")
+                    # Fallback: try dumping clipboard via input trick
+                    rc2, clip_text, _ = adb("-s", serial, "shell",
+                        "service call clipboard 2 i32 1 2>/dev/null | grep -oP \"'[^']+(?='\\))\" | head -1 || echo ''")
+                    text = (clip_text or out).strip().strip("'")
+                    if text:
+                        # Copy to laptop clipboard
+                        proc = subprocess.Popen(["xclip", "-selection", "clipboard"], stdin=subprocess.PIPE)
+                        proc.communicate(input=text.encode())
+                        self.send_json({"text": text, "ok": True})
+                    else:
+                        self.send_json({"text": "", "ok": False, "error": "Could not read phone clipboard"})
+
+                # ── Clipboard: push laptop → phone ─────────────────
+                elif path == "/clip/push":
+                    # Read laptop clipboard
+                    result = subprocess.run(["xclip", "-selection", "clipboard", "-o"],
+                                            capture_output=True, text=True, timeout=3)
+                    clip_text = result.stdout.strip()
+                    if clip_text:
+                        escaped = clip_text.replace("'", "\\'").replace('"', '\\"')[:500]
+                        adb("-s", serial, "shell", f"am broadcast -a clipper.set -e text '{escaped}' 2>/dev/null || "
+                            f"input text '{escaped}'")
+                        self.send_json({"text": clip_text, "ok": True})
+                    else:
+                        self.send_json({"text": "", "ok": False, "error": "Laptop clipboard is empty"})
+
+                # ── GPS Locator ─────────────────────────────────────
+                elif path == "/gps/now":
+                    rc, out, _ = adb("-s", serial, "shell", "dumpsys location | grep -E 'last loc|mLastKnownLocation' | head -5")
+                    lat, lon = None, None
+                    import re
+                    m = re.search(r'(\-?\d+\.\d+),(\-?\d+\.\d+)', out)
+                    if m:
+                        lat, lon = m.group(1), m.group(2)
+                        maps_url = f"https://maps.google.com/?q={lat},{lon}"
+                        self.send_json({"lat": lat, "lon": lon, "maps_url": maps_url, "ok": True})
+                    else:
+                        self.send_json({"ok": False, "error": "Could not read GPS. Ensure location is enabled and app has permission."})
+
+                # ── Directory browser ──────────────────────────────
+                elif path == "/laptop/browse":
+                    import urllib.parse as _up
+                    qs = dict(_up.parse_qsl(self.path.split("?")[1] if "?" in self.path else ""))
+                    browse_path = qs.get("path", str(Path.home()))
+                    browse_path = str(Path(browse_path).expanduser().resolve())
+
+                    # Safety: stay inside home directory
+                    home = str(Path.home())
+                    if not browse_path.startswith(home):
+                        browse_path = home
+
+                    p = Path(browse_path)
+                    if not p.exists() or not p.is_dir():
+                        self.send_json({"error": "Invalid path", "path": browse_path, "items": []})
+                        return
+
+                    items = []
+                    try:
+                        for item in sorted(p.iterdir()):
+                            if item.name.startswith("."):
+                                continue  # skip hidden
+                            items.append({
+                                "name": item.name,
+                                "path": str(item),
+                                "is_dir": item.is_dir(),
+                                "size": item.stat().st_size if item.is_file() else None,
+                            })
+                    except PermissionError:
+                        pass
+                    
+                    parent = str(p.parent) if p != p.parent else None
+                    self.send_json({
+                        "path": browse_path,
+                        "parent": parent,
+                        "home": home,
+                        "items": items
+                    })
+
+                # ── Advanced Suite: Reboot Phone ────────────────────
+                elif path == "/phone/reboot":
+                    adb("-s", serial, "reboot")
+                    self.send_text("OK: Phone is rebooting. It will disconnect soon.")
+
+                # ── Advanced Suite: Live Webcam Stream ──────────────
+                elif path == "/laptop/cam_stream":
+                    if not shutil.which("ffmpeg"):
+                        self.send_text("ffmpeg is required on the laptop for streaming. Run: sudo apt install ffmpeg", 500)
+                        return
+                        
+                    self.send_response(200)
+                    self.send_header("Age", "0")
+                    self.send_header("Cache-Control", "no-cache, private")
+                    self.send_header("Pragma", "no-cache")
+                    self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+                    self.end_headers()
+
+                    # Spawning ffmpeg to pipe mpjpeg straight into the open HTTP stream socket
+                    if IS_WIN:
+                        cam_name = get_win_device("video")
+                        if not cam_name:
+                            self.send_text("No DirectShow camera found on Windows", 500)
+                            return
+                        cmd = ["ffmpeg", "-y", "-f", "dshow", "-i", f'video={cam_name}', "-f", "mpjpeg", "-q:v", "5", "-"]
+                    else:
+                        cmd = [
+                            "ffmpeg", "-y", "-f", "v4l2", "-framerate", "15",
+                            "-video_size", "640x480", "-i", "/dev/video0",
+                            "-f", "mpjpeg", "-q:v", "5", "-"
+                        ]
+                    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                    
+                    try:
+                        while True:
+                            chunk = proc.stdout.read(4096)
+                            if not chunk: break
+                            self.wfile.write(chunk)
+                            self.wfile.flush()  # critical: push each frame immediately
+                    except Exception:
+                        pass
+                    finally:
+                        proc.kill()
+                        
+                # ── Advanced Suite: Laptop Mic Stream ───────────────
+                elif path == "/laptop/mic":
+                    if not shutil.which("ffmpeg"):
+                        self.send_text("ffmpeg is required on the laptop. Run: sudo apt install ffmpeg", 500)
+                        return
+                        
+                    self.send_response(200)
+                    self.send_header("Content-Type", "audio/mpeg")
+                    self.end_headers()
+
+                    # Spawning ffmpeg to stream default mic as mp3
+                    env = os.environ.copy()
+                    if IS_WIN:
+                        mic_name = get_win_device("audio")
+                        if not mic_name:
+                            self.send_text("No DirectShow audio found on Windows", 500)
+                            return
+                        cmd = ["ffmpeg", "-y", "-f", "dshow", "-i", f'audio={mic_name}', "-f", "mp3", "-b:a", "128k", "-"]
+                    else:
+                        env.setdefault("PULSE_SERVER", "unix:/run/user/1000/pulse/native")
+                        cmd = ["ffmpeg", "-y", "-f", "pulse", "-i", "default", "-f", "mp3", "-b:a", "128k", "-"]
+                        
+                    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env)
+                    
+                    try:
+                        while True:
+                            chunk = proc.stdout.read(4096)
+                            if not chunk: break
+                            self.wfile.write(chunk)
+                            self.wfile.flush()  # push each audio frame immediately
+                    except Exception:
+                        pass
+                    finally:
+                        proc.kill()
 
                 else:
                     self.send_text(f"Unknown route: {path}", 404)
@@ -1160,10 +1578,83 @@ def cmd_web(args):
             except Exception as exc:
                 self.send_text(f"Error: {exc}", 500)
 
-    socketserver.TCPServer.allow_reuse_address = True
+        def do_POST(self):
+            """Handle file uploads from phone to laptop."""
+            path = urllib.parse.unquote(self.path.split("?")[0])
+            try:
+                if path == "/laptop/upload":
+                    content_length = int(self.headers.get("Content-Length", 0))
+                    if content_length == 0:
+                        self.send_text("No file data received", 400)
+                        return
+
+                    filename = self.headers.get("X-Filename", f"upload_{int(time.time())}")
+                    filename = Path(filename).name  # sanitize
+
+                    dl_dir = Path.home() / "Downloads"
+                    dl_dir.mkdir(parents=True, exist_ok=True)
+                    dest = dl_dir / filename
+
+                    body = self.rfile.read(content_length)
+                    dest.write_bytes(body)
+                    self.send_text(f"OK: saved {filename} ({len(body)} bytes) to ~/Downloads")
+
+                elif path == "/laptop/save-text":
+                    content_length = int(self.headers.get("Content-Length", 0))
+                    filepath = self.headers.get("X-Filepath", "")
+                    if not filepath:
+                        self.send_text("Missing X-Filepath header", 400)
+                        return
+
+                    dest = Path(filepath).expanduser().resolve()
+
+                    # Safety: must be within home directory
+                    if not str(dest).startswith(str(Path.home())):
+                        self.send_text("Access denied: path outside home directory", 403)
+                        return
+
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    body = self.rfile.read(content_length)
+                    dest.write_bytes(body)
+                    self.send_json({"ok": True, "path": str(dest), "size": len(body)})
+
+                # ── Advanced Suite: Phone Mic Stream Receiver ────────
+                elif path == "/phone/mic":
+                    if not shutil.which("ffplay"):
+                        self.send_json({"ok": False, "error": "ffplay missing on laptop. Run: sudo apt install ffmpeg"}, 500)
+                        return
+                        
+                    content_length = int(self.headers.get("Content-Length", 0))
+                    body = self.rfile.read(content_length)
+                    
+                    # Instead of opening ffplay for every chunk, we should pipe it. 
+                    # If global ffplay process doesn't exist, start it.
+                    global _ffplay_proc
+                    if '_ffplay_proc' not in globals() or _ffplay_proc.poll() is not None:
+                        _ffplay_proc = subprocess.Popen([
+                            "ffplay", "-nodisp", "-autoexit", "-infbuf", "-"
+                        ], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    
+                    try:
+                        _ffplay_proc.stdin.write(body)
+                        _ffplay_proc.stdin.flush()
+                        self.send_json({"ok": True, "bytes": len(body)})
+                    except Exception as e:
+                        self.send_json({"ok": False, "error": str(e)})
+
+                else:
+                    self.send_text(f"Unknown POST route: {path}", 404)
+            except Exception as exc:
+                self.send_text(f"Upload error: {exc}", 500)
+
+    class ThreadingHTTPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+        daemon_threads = True
+
+    ThreadingHTTPServer.allow_reuse_address = True
     try:
-        with socketserver.TCPServer(("", port), PhoneLinkHandler) as httpd:
-            httpd.serve_forever()
+        server = ThreadingHTTPServer(("", port), PhoneLinkHandler)
+        log("ok",  f"Server listening natively on HTTP port {port}")
+        server.serve_forever()
     except KeyboardInterrupt:
         print("\nShutting down PhoneLink server.")
 
@@ -1424,7 +1915,7 @@ def cmd_cam(args):
     newest = out.strip()
     remote_path = f"/sdcard/DCIM/Camera/{newest}"
     ts = int(time.time())
-    local = f"phonelink_cam_{ts}.jpg"
+    local = str(Path.home() / "Downloads" / f"phonelink_cam_{ts}.jpg")
     rc, pull_out, pull_err = adb("-s", serial, "pull", remote_path, local)
     
     if "error" not in pull_err.lower():
@@ -1571,6 +2062,14 @@ def cmd_bug(args):
     except KeyboardInterrupt:
         log("ok", "Bug terminated.")
 
+def cmd_reboot(args):
+    """Restart the connected Android phone."""
+    require_adb()
+    serial = get_first_device()
+    log("info", "Rebooting device...")
+    adb("-s", serial, "reboot")
+    log("ok", "Reboot command sent.")
+
 def cmd_2fa(args):
     """Daemon to poll for new 2FA sms and xclip them."""
     import re
@@ -1635,6 +2134,7 @@ def main():
   {G}sync{RST}       Watch a PC folder and auto-push changes to phone
   {G}sms{RST}        Send SMS texts from the terminal
   {G}clip{RST}       Universal clipboard sync (push/pull text)
+  {G}reboot{RST}     Restart the connected Android phone
   {G}web{RST}        Local web dashboard on port 8000
   {G}macro{RST}      Run automated touch/swipe bot scripts
 
@@ -1712,6 +2212,9 @@ def main():
 
     # net
     sub.add_parser("net", help="Reverse tethering over USB")
+
+    # reboot
+    sub.add_parser("reboot", help="Restart the connected Android phone")
 
     # wifi
     sub.add_parser("wifi", help="Wireless pair and connect over Wi-Fi")
@@ -1842,6 +2345,7 @@ def main():
         "ui":      cmd_ui,
         "web":     cmd_web,
         "macro":   cmd_macro,
+        "reboot":  cmd_reboot,
     }
 
     if args.cmd == "help":

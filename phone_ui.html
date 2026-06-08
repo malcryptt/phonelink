@@ -494,6 +494,20 @@
       border: 1px solid var(--border);
     }
 
+    .loc-btn {
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 7px 12px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .loc-btn:active {
+      background: var(--border);
+    }
+
     /* ── Dividers ───────────────────────────────────── */
     hr {
       border: none;
@@ -611,16 +625,7 @@
         <div class="cmd-name">Mirror</div>
         <div class="cmd-desc">Open PC window</div>
       </div>
-      <div class="cmd" data-color="yellow" onclick="sendCmd('flash/on')">
-        <div class="cmd-icon">🔦</div>
-        <div class="cmd-name">Flash ON</div>
-        <div class="cmd-desc">Turn on torch</div>
-      </div>
-      <div class="cmd" data-color="red" onclick="sendCmd('flash/off')">
-        <div class="cmd-icon">🔦</div>
-        <div class="cmd-name">Flash OFF</div>
-        <div class="cmd-desc">Turn off torch</div>
-      </div>
+
       <div class="cmd" data-color="green" onclick="sendCmd('wifi')">
         <div class="cmd-icon">📡</div>
         <div class="cmd-name">Wi-Fi Pair</div>
@@ -822,8 +827,8 @@
     <!-- ──────────── POWER CONTROL ──────────── -->
     <div class="section-title">Power Control</div>
     <div class="grid">
-      <div class="cmd" data-color="red" onclick="if(confirm('Reboot Phone?')) sendCmd('power/reboot')">
-        <div class="cmd-icon"></div>
+      <div class="cmd" data-color="red" onclick="if(confirm('Reboot Phone?')) sendCmd('phone/reboot')">
+        <div class="cmd-icon">📱🔄</div>
         <div class="cmd-name">Reboot Phone</div>
       </div>
       <div class="cmd" data-color="red" onclick="if(confirm('Shutdown Phone?')) sendCmd('power/shutdown')">
@@ -849,6 +854,216 @@
     </div>
 
   </main>
+
+  <!-- ──────────── MEDIA REMOTE ──────────── -->
+  <div class="section-title">Media Remote</div>
+  <div class="grid">
+    <div class="cmd" data-color="cyan" onclick="sendCmd('laptop/key/XF86AudioPrev')">
+      <div class="cmd-icon">⏮</div>
+      <div class="cmd-name">Previous</div>
+    </div>
+    <div class="cmd" data-color="green" onclick="sendCmd('laptop/key/XF86AudioPlay')">
+      <div class="cmd-icon">⏯</div>
+      <div class="cmd-name">Play/Pause</div>
+    </div>
+    <div class="cmd" data-color="cyan" onclick="sendCmd('laptop/key/XF86AudioNext')">
+      <div class="cmd-icon">⏭</div>
+      <div class="cmd-name">Next</div>
+    </div>
+    <div class="cmd" data-color="purple" onclick="sendCmd('laptop/key/XF86AudioMute')">
+      <div class="cmd-icon">🔇</div>
+      <div class="cmd-name">Mute PC</div>
+    </div>
+    <div class="cmd" data-color="purple" onclick="sendCmd('laptop/key/XF86AudioLowerVolume')">
+      <div class="cmd-icon">🔉</div>
+      <div class="cmd-name">Vol− PC</div>
+    </div>
+    <div class="cmd" data-color="purple" onclick="sendCmd('laptop/key/XF86AudioRaiseVolume')">
+      <div class="cmd-icon">🔊</div>
+      <div class="cmd-name">Vol+ PC</div>
+    </div>
+    <div class="cmd" data-color="cyan" onclick="sendCmd('laptop/key/Left')">
+      <div class="cmd-icon">⬅️</div>
+      <div class="cmd-name">← Slide</div>
+    </div>
+    <div class="cmd" data-color="cyan" onclick="sendCmd('laptop/key/Right')">
+      <div class="cmd-icon">➡️</div>
+      <div class="cmd-name">→ Slide</div>
+    </div>
+  </div>
+
+  <!-- ──────────── LAPTOP WEBCAM ──────────── -->
+  <div class="section-title">Laptop Webcam</div>
+  <div style="display:flex;gap:10px;margin-bottom:10px;">
+    <button onclick="snapWebcam()"
+      style="flex:1;background:var(--green);color:#0a0a0f;border:none;border-radius:14px;padding:16px;font-size:14px;font-weight:700;cursor:pointer;">
+      📸 Take Snapshot
+    </button>
+    <button id="cam-stream-btn" onclick="toggleLiveCam()"
+      style="flex:1;background:var(--purple);color:#fff;border:none;border-radius:14px;padding:16px;font-size:14px;font-weight:700;cursor:pointer;">
+      📹 Live Stream
+    </button>
+  </div>
+  <div id="cam-preview"
+    style="display:none;text-align:center;margin-bottom:20px;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:10px;">
+    <img id="cam-img" style="max-width:100%;border-radius:10px;" />
+    <div id="cam-label" style="margin-top:8px;color:var(--muted);font-size:12px;">Webcam viewer</div>
+  </div>
+
+  <!-- ──────────── TWO-WAY AUDIO ──────────── -->
+  <div class="section-title">Two-Way Audio Intercom</div>
+  <div
+    style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:20px;">
+
+    <div style="margin-bottom:20px;">
+      <div style="font-weight:700;color:var(--cyan);margin-bottom:10px;">🎧 Listen to Laptop Mic</div>
+      <audio id="laptop-audio" controls style="width:100%;height:40px;outline:none;"></audio>
+      <button
+        onclick="document.getElementById('laptop-audio').src = serverBase + '/laptop/mic'; document.getElementById('laptop-audio').play();"
+        style="width:100%;margin-top:8px;background:var(--bg);border:1px dashed var(--border);color:var(--muted);border-radius:8px;padding:10px;cursor:pointer;">
+        Click to Start Listening
+      </button>
+    </div>
+
+    <div>
+      <div style="font-weight:700;color:var(--red);margin-bottom:10px;">🎙️ Speak to Laptop</div>
+      <button id="phone-mic-btn" onclick="toggleMicStream()"
+        style="width:100%;background:var(--red);color:#fff;border:none;border-radius:8px;padding:16px;font-size:14px;font-weight:700;cursor:pointer;">
+        🔴 Start Broadcasting Microphone
+      </button>
+    </div>
+  </div>
+
+  <!-- ──────────── CLIPBOARD BRIDGE ──────────── -->
+  <div class="section-title">Clipboard Bridge</div>
+  <div
+    style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:10px;">
+    <div style="display:flex;gap:10px;margin-bottom:10px;">
+      <button onclick="clipPull()"
+        style="flex:1;background:var(--cyan);color:#000;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;">
+        📲→💻 Pull from Phone
+      </button>
+      <button onclick="clipPush()"
+        style="flex:1;background:var(--purple);color:#fff;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;">
+        💻→📲 Push to Phone
+      </button>
+    </div>
+    <div id="clip-preview"
+      style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:13px;color:var(--text);word-break:break-all;font-family:monospace;">
+    </div>
+  </div>
+
+  <!-- ──────────── GPS LOCATOR ──────────── -->
+  <div class="section-title">GPS Locator</div>
+  <button onclick="gpsNow()"
+    style="width:100%;background:var(--green);color:#0a0a0f;border:none;border-radius:14px;padding:16px;font-size:16px;font-weight:700;margin-bottom:10px;cursor:pointer;">
+    📍 Get Phone Location
+  </button>
+  <div id="gps-result"
+    style="display:none;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:20px;text-align:center;">
+    <div id="gps-coords" style="font-family:monospace;font-size:13px;color:var(--cyan);margin-bottom:10px;"></div>
+    <a id="gps-link" href="#" target="_blank"
+      style="background:var(--green);color:#000;border:none;border-radius:8px;padding:10px 20px;font-weight:700;text-decoration:none;font-size:14px;">
+      🗺️ Open in Google Maps
+    </a>
+  </div>
+
+  <!-- ──────────── REMOTE NOTEPAD ──────────── -->
+  <div class="section-title">Remote Notepad</div>
+  <div
+    style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:20px;">
+    <!-- Collapsed state: Show text button -->
+    <div id="notepad-collapsed">
+      <button onclick="openNotepad()"
+        style="width:100%;background:var(--bg);border:1px dashed var(--border);border-radius:10px;padding:18px;font-size:15px;color:var(--muted);cursor:pointer;text-align:center;">
+        📝 Tap to open notepad…
+      </button>
+    </div>
+    <!-- Expanded editor -->
+    <div id="notepad-expanded" style="display:none;">
+      <textarea id="notepad-text" placeholder="Write anything here… code snippets, notes, commands, passwords…"
+        style="width:100%;height:220px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:12px;font-size:14px;font-family:monospace;outline:none;resize:vertical;box-sizing:border-box;"></textarea>
+      <div style="display:flex;gap:8px;margin-top:10px;">
+        <button onclick="openNoteSave()"
+          style="flex:1;background:var(--cyan);color:#000;border:none;border-radius:8px;padding:12px;font-weight:700;cursor:pointer;">
+          💾 Save to Laptop
+        </button>
+        <button onclick="closeNotepad()"
+          style="background:var(--card);border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:12px;cursor:pointer;">
+          ✕ Close
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Save Panel (shown after clicking Save) -->
+  <div id="notepad-save-panel"
+    style="display:none;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:20px;">
+    <div style="font-weight:700;color:var(--cyan);margin-bottom:12px;font-size:15px;">💾 Save As</div>
+
+    <!-- Filename -->
+    <div style="margin-bottom:12px;">
+      <div style="color:var(--muted);font-size:12px;margin-bottom:4px;">FILENAME</div>
+      <input id="notepad-filename" type="text" value="note.txt"
+        style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font-size:14px;font-family:monospace;outline:none;box-sizing:border-box;" />
+    </div>
+
+    <!-- Quick Location Shortcuts -->
+    <div style="margin-bottom:10px;">
+      <div style="color:var(--muted);font-size:12px;margin-bottom:6px;">SAVE LOCATION</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">
+        <button onclick="browseTo('~/Downloads')" class="loc-btn">📥 Downloads</button>
+        <button onclick="browseTo('~/Desktop')" class="loc-btn">🖥️ Desktop</button>
+        <button onclick="browseTo('~/Documents')" class="loc-btn">📄 Documents</button>
+        <button onclick="browseTo('~/Pictures')" class="loc-btn">🖼️ Pictures</button>
+        <button onclick="browseTo('~')" class="loc-btn">🏠 Home</button>
+      </div>
+      <!-- Current path display -->
+      <div id="notepad-curpath"
+        style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:11px;font-family:monospace;color:var(--cyan);word-break:break-all;margin-bottom:8px;">
+        ~/Downloads
+      </div>
+      <!-- Folder browser -->
+      <div id="notepad-browser"
+        style="background:var(--bg);border:1px solid var(--border);border-radius:8px;max-height:180px;overflow-y:auto;">
+        <div style="color:var(--muted);padding:10px;font-size:13px;">Loading…</div>
+      </div>
+    </div>
+
+    <!-- Confirm buttons -->
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <button onclick="confirmSaveNote()"
+        style="flex:1;background:var(--green);color:#000;border:none;border-radius:8px;padding:12px;font-weight:700;cursor:pointer;">
+        ✅ Confirm Save
+      </button>
+      <button onclick="document.getElementById('notepad-save-panel').style.display='none'"
+        style="background:var(--card);border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:12px;cursor:pointer;">
+        Cancel
+      </button>
+    </div>
+  </div>
+
+  <!-- ──────────── FILE TRANSFER ──────────── -->
+  <div class="section-title">File Transfer</div>
+  <div
+    style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:10px;">
+    <div style="font-weight:700;color:var(--cyan);margin-bottom:10px;">📤 Upload File to Laptop</div>
+    <input type="file" id="file-upload-input"
+      style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font-size:14px;margin-bottom:10px;" />
+    <button onclick="uploadToPC()"
+      style="width:100%;background:var(--accent2);color:#000;border:none;border-radius:10px;padding:12px;font-size:15px;font-weight:700;cursor:pointer;">
+      ⬆️ Send to ~/Downloads
+    </button>
+  </div>
+  <div
+    style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:20px;">
+    <div style="font-weight:700;color:var(--cyan);margin-bottom:10px;">📥 Download File from Laptop</div>
+    <button onclick="browseLaptopFiles()"
+      style="width:100%;background:var(--purple);color:#fff;border:none;border-radius:10px;padding:12px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:10px;">
+      📂 Browse ~/Downloads
+    </button>
+    <div id="laptop-file-list" style="display:none;max-height:200px;overflow-y:auto;"></div>
+  </div>
 
   <!-- ──────────── VIRTUAL TRACKPAD ──────────── -->
   <div class="section-title">Virtual Trackpad</div>
@@ -998,7 +1213,12 @@
     // ── Storage ─────────────────────────────────────────
     const STORE = { get: k => localStorage.getItem(k), set: (k, v) => localStorage.setItem(k, v) };
 
-    let serverBase = STORE.get('server') || 'http://10.207.45.75:8000';
+    let serverBase = "";
+    if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+      serverBase = window.location.origin;
+    } else {
+      serverBase = STORE.get('server') || 'http://127.0.0.1:8000';
+    }
     let pollTimer = null;
 
     // Auto-connect on boot
@@ -1022,7 +1242,8 @@
 
     // ── Connect ──────────────────────────────────────────
     function connect() {
-      const raw = document.getElementById('server-ip').value.trim();
+      let raw = document.getElementById('server-ip').value.trim();
+      if (raw.indexOf(':') === -1 && raw.split('.').length === 4) raw += ':8000';
       serverBase = raw.startsWith('http') ? raw : 'http://' + raw;
       STORE.set('server', raw);
       ping();
@@ -1175,40 +1396,368 @@
       });
     }
 
+    // ── Webcam Snapshot ──────────────────────────────────
+    async function snapWebcam() {
+      if (!serverBase) { toast('Set laptop IP first!'); return; }
+      toast('📸 Capturing webcam…');
+      try {
+        const r = await fetch(serverBase + '/laptop/cam', { signal: AbortSignal.timeout(15000) });
+        if (!r.ok) { toast('❌ Webcam capture failed'); return; }
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        document.getElementById('cam-img').src = url;
+        document.getElementById('cam-preview').style.display = 'block';
+        toast('✅ Snapshot received!');
+      } catch (e) { toast('❌ ' + e.message); }
+    }
+
+    // ── File Upload (Phone → Laptop) ─────────────────────
+    async function uploadToPC() {
+      if (!serverBase) { toast('Set laptop IP first!'); return; }
+      const inp = document.getElementById('file-upload-input');
+      const file = inp.files[0];
+      if (!file) { toast('Select a file first!'); return; }
+
+      const btn = event.target;
+      btn.textContent = '⬆️ Uploading...';
+      btn.style.opacity = '0.5';
+      btn.disabled = true;
+
+      try {
+        const r = await fetch(serverBase + '/laptop/upload', {
+          method: 'POST',
+          headers: { 'X-Filename': file.name },
+          body: file
+        });
+        toast(r.ok ? '✅ Upload complete!' : '❌ Upload failed');
+        if (r.ok) inp.value = '';
+      } catch (e) { toast('❌ Error: ' + e.message); }
+
+      btn.textContent = '⬆️ Send to ~/Downloads';
+      btn.style.opacity = '1';
+      btn.disabled = false;
+    }
+
+    // ── Two-Way Audio Intercom ─────────────────────────────
+    let micRecorder = null;
+    let micStream = null;
+
+    async function toggleMicStream() {
+      const btn = document.getElementById('phone-mic-btn');
+      if (micRecorder && micRecorder.state === 'recording') {
+        micRecorder.stop();
+        if (micStream) micStream.getTracks().forEach(t => t.stop());
+        micRecorder = null;
+        micStream = null;
+        btn.innerHTML = '🔴 Start Broadcasting Microphone';
+        btn.style.background = 'var(--red)';
+        toast('Broadcast stopped.');
+        return;
+      }
+
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        micRecorder = new MediaRecorder(micStream, { mimeType: 'audio/webm' });
+
+        micRecorder.ondataavailable = async (e) => {
+          if (e.data.size > 0 && serverBase) {
+            fetch(serverBase + '/phone/mic', {
+              method: 'POST',
+              body: e.data
+            }).catch(Boolean);
+          }
+        };
+
+        // request slice every 500ms
+        micRecorder.start(500);
+        btn.innerHTML = '⏹️ Stop Broadcasting';
+        btn.style.background = 'var(--accent)';
+        toast('Broadcasting live to laptop speakers!');
+      } catch (err) {
+        toast('❌ Microphone permission denied');
+      }
+    }
+
+    // ── Webcam Features ───────────────────────────────────
+    let camStreaming = false;
+
+    function toggleLiveCam() {
+      if (!serverBase) { toast('Set IP first!'); return; }
+      const img = document.getElementById('cam-img');
+      const lbl = document.getElementById('cam-label');
+      const btn = document.getElementById('cam-stream-btn');
+
+      if (camStreaming) {
+        img.src = '';
+        document.getElementById('cam-preview').style.display = 'none';
+        btn.innerHTML = '📹 Live Stream';
+        btn.style.background = 'var(--purple)';
+        camStreaming = false;
+      } else {
+        document.getElementById('cam-preview').style.display = 'block';
+        img.src = serverBase + '/laptop/cam_stream?ts=' + Date.now();
+        lbl.textContent = 'Live Video Stream Active';
+        btn.innerHTML = '⏹️ Stop Stream';
+        btn.style.background = 'var(--red)';
+        camStreaming = true;
+      }
+    }
+
+    // ── File Download (Laptop → Phone) ───────────────────
+    async function browseLaptopFiles() {
+      if (!serverBase) { toast('Set laptop IP first!'); return; }
+      const list = document.getElementById('laptop-file-list');
+      list.style.display = 'block';
+      list.innerHTML = 'Loading…';
+      try {
+        const r = await fetch(serverBase + '/laptop/files');
+        const d = await r.json();
+        if (!d.files.length) { list.innerHTML = '<div style="color:var(--muted);padding:8px;">No files found</div>'; return; }
+        let html = '';
+        d.files.forEach(f => {
+          html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px;border-bottom:1px solid var(--border);">
+            <span style="color:var(--text);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">${f}</span>
+            <a href="${serverBase}/laptop/download/${encodeURIComponent(f)}" download
+              style="background:var(--cyan);color:#000;border:none;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:700;text-decoration:none;margin-left:8px;">⬇️</a>
+          </div>`;
+        });
+        list.innerHTML = html;
+      } catch (e) { list.innerHTML = 'Failed to load files.'; }
+    }
+
+    // ── Clipboard Bridge ─────────────────────────────────
+    async function clipPull() {
+      if (!serverBase) { toast('Set laptop IP first!'); return; }
+      toast('📲 Pulling phone clipboard…');
+      try {
+        const r = await fetch(serverBase + '/clip/pull', { signal: AbortSignal.timeout(8000) });
+        const d = await r.json();
+        if (d.ok) {
+          const el = document.getElementById('clip-preview');
+          el.textContent = d.text;
+          el.style.display = 'block';
+          toast('✅ Copied to laptop clipboard!');
+          logTerm('clip.pull: ' + d.text.slice(0, 60));
+        } else { toast('❌ ' + (d.error || 'Empty clipboard')); }
+      } catch (e) { toast('❌ ' + e.message); }
+    }
+
+    async function clipPush() {
+      if (!serverBase) { toast('Set laptop IP first!'); return; }
+      toast('💻 Pushing laptop clipboard to phone…');
+      try {
+        const r = await fetch(serverBase + '/clip/push', { signal: AbortSignal.timeout(8000) });
+        const d = await r.json();
+        if (d.ok) {
+          const el = document.getElementById('clip-preview');
+          el.textContent = d.text;
+          el.style.display = 'block';
+          toast('✅ Pasted on phone!');
+          logTerm('clip.push: ' + d.text.slice(0, 60));
+        } else { toast('❌ ' + (d.error || 'Laptop clipboard empty')); }
+      } catch (e) { toast('❌ ' + e.message); }
+    }
+
+    // ── GPS Locator ──────────────────────────────────────
+    async function gpsNow() {
+      if (!serverBase) { toast('Set laptop IP first!'); return; }
+      toast('📍 Fetching GPS coordinates…');
+      try {
+        const r = await fetch(serverBase + '/gps/now', { signal: AbortSignal.timeout(12000) });
+        const d = await r.json();
+        const panel = document.getElementById('gps-result');
+        if (d.ok) {
+          document.getElementById('gps-coords').textContent = `Lat: ${d.lat}  Lon: ${d.lon}`;
+          document.getElementById('gps-link').href = d.maps_url;
+          panel.style.display = 'block';
+          toast('✅ Location found!');
+          logTerm(`GPS: ${d.lat}, ${d.lon}`);
+        } else {
+          panel.style.display = 'none';
+          toast('❌ ' + d.error);
+        }
+      } catch (e) { toast('❌ ' + e.message); }
+    }
+
+    // ── Remote Notepad ────────────────────────────────
+    let notepadSavePath = '';
+
+    function openNotepad() {
+      document.getElementById('notepad-collapsed').style.display = 'none';
+      document.getElementById('notepad-expanded').style.display = 'block';
+      document.getElementById('notepad-text').focus();
+    }
+
+    function closeNotepad() {
+      document.getElementById('notepad-collapsed').style.display = 'block';
+      document.getElementById('notepad-expanded').style.display = 'none';
+      document.getElementById('notepad-save-panel').style.display = 'none';
+    }
+
+    async function openNoteSave() {
+      const text = document.getElementById('notepad-text').value;
+      if (!text.trim()) { toast('Nothing to save!'); return; }
+      document.getElementById('notepad-save-panel').style.display = 'block';
+      await browseTo('~/Downloads');
+    }
+
+    async function browseTo(path) {
+      if (!serverBase) { toast('Set laptop IP first!'); return; }
+      const browser = document.getElementById('notepad-browser');
+      const curPath = document.getElementById('notepad-curpath');
+      browser.innerHTML = '<div style="color:var(--muted);padding:10px;font-size:13px;">Loading…</div>';
+      try {
+        const url = serverBase + '/laptop/browse?path=' + encodeURIComponent(path);
+        const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
+        const d = await r.json();
+        notepadSavePath = d.path;
+        curPath.textContent = d.path.replace(d.home, '~');
+
+        let html = '';
+        if (d.parent) {
+          html += `<div onclick="browseTo('${d.parent}')" 
+            style="display:flex;align-items:center;gap:8px;padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--border);color:var(--muted);">
+            <span>⬆️</span><span style="font-size:13px;">..</span>
+          </div>`;
+        }
+        d.items.forEach(item => {
+          if (item.is_dir) {
+            html += `<div onclick="browseTo('${item.path}')" 
+              style="display:flex;align-items:center;gap:8px;padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--border);">
+              <span>📁</span><span style="font-size:13px;color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${item.name}</span>
+              <span style="color:var(--muted);font-size:11px;">›</span>
+            </div>`;
+          } else {
+            const kb = item.size ? (item.size / 1024).toFixed(1) + 'K' : '';
+            html += `<div style="display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--border);opacity:0.5;">
+              <span>📄</span><span style="font-size:13px;color:var(--muted);flex:1;">${item.name}</span>
+              <span style="color:var(--muted);font-size:11px;">${kb}</span>
+            </div>`;
+          }
+        });
+        if (!d.items.length) html = '<div style="color:var(--muted);padding:10px;font-size:13px;">Empty folder</div>';
+        browser.innerHTML = html;
+      } catch (e) { browser.innerHTML = '<div style="color:var(--red);padding:10px;font-size:13px;">Error: ' + e.message + '</div>'; }
+    }
+
+    async function confirmSaveNote() {
+      const text = document.getElementById('notepad-text').value;
+      const filename = document.getElementById('notepad-filename').value.trim() || 'note.txt';
+      if (!text.trim()) { toast('Nothing to save!'); return; }
+      if (!notepadSavePath) { toast('Choose a save location first!'); return; }
+      const fullPath = notepadSavePath.replace(/\/$/, '') + '/' + filename;
+      toast('💾 Saving…');
+      try {
+        const r = await fetch(serverBase + '/laptop/save-text', {
+          method: 'POST',
+          headers: { 'X-Filepath': fullPath },
+          body: new TextEncoder().encode(text),
+          signal: AbortSignal.timeout(10000)
+        });
+        const d = await r.json();
+        if (d.ok) {
+          toast('✅ Saved to ' + d.path.replace(d.path.split('/').slice(0, 4).join('/'), '~'));
+          logTerm('note saved: ' + d.path);
+          document.getElementById('notepad-save-panel').style.display = 'none';
+          closeNotepad();
+          document.getElementById('notepad-text').value = '';
+        } else { toast('❌ Save failed'); }
+      } catch (e) {
+        // Offline Draft Queue
+        let drafts = JSON.parse(localStorage.getItem('offlineNotepadQueue') || '[]');
+        drafts.push({ text: text, filepath: fullPath, time: Date.now() });
+        localStorage.setItem('offlineNotepadQueue', JSON.stringify(drafts));
+
+        toast('📶 Offline: Saved to drafts. Will sync automatically later.');
+        logTerm('note queued for offline sync');
+        document.getElementById('notepad-save-panel').style.display = 'none';
+        closeNotepad();
+        document.getElementById('notepad-text').value = '';
+      }
+    }
+
     // ── Virtual Trackpad Logic ────────────────────────────
     function openTrackpad() { document.getElementById('trackpad-overlay').style.display = 'flex'; }
     function closeTrackpad() { document.getElementById('trackpad-overlay').style.display = 'none'; }
 
     const tp = document.getElementById('trackpad-surface');
     let lastX = 0, lastY = 0;
+    let pendingDx = 0, pendingDy = 0;
+    let isSending = false;
+
+    function flushMouse() {
+      if (pendingDx === 0 && pendingDy === 0) {
+        isSending = false;
+        return;
+      }
+      const sx = pendingDx, sy = pendingDy;
+      pendingDx = 0; pendingDy = 0;
+      isSending = true;
+      fetch(serverBase + `/laptop/mouse/move/${sx}/${sy}`)
+        .finally(() => flushMouse());
+    }
 
     tp.addEventListener('touchstart', (e) => {
       lastX = e.touches[0].clientX;
       lastY = e.touches[0].clientY;
+      touchStartTime = Date.now();
     });
 
     tp.addEventListener('touchmove', (e) => {
       e.preventDefault();
+
+      // Two-finger scroll detection
+      if (e.touches.length === 2) {
+        const avgY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        if (lastScrollY !== null) {
+          const scrollDelta = avgY - lastScrollY;
+          if (Math.abs(scrollDelta) > 3) {
+            const amount = scrollDelta > 0 ? 3 : -3;
+            fetch(serverBase + `/laptop/scroll/${amount}`).catch(() => { });
+          }
+        }
+        lastScrollY = avgY;
+        return;
+      }
+      lastScrollY = null;
+
       const currX = e.touches[0].clientX;
       const currY = e.touches[0].clientY;
-      const dx = (currX - lastX) * 2; // Sensitivity multiplier
-      const dy = (currY - lastY) * 2;
+
+      let dx = currX - lastX;
+      let dy = currY - lastY;
+
+      // Dynamic acceleration curve (emulates physical laptop trackpads)
+      const rawSpeed = Math.sqrt(dx * dx + dy * dy);
+      const accel = rawSpeed > 10 ? 2.5 : (rawSpeed > 5 ? 1.5 : 1);
+
+      pendingDx += Math.round(dx * accel);
+      pendingDy += Math.round(dy * accel);
+
       lastX = currX;
       lastY = currY;
 
-      // Throttle rapid move events by fetching in background without waiting
-      fetch(serverBase + `/laptop/mouse/move/${dx}/${dy}`).catch(() => { });
+      if (!isSending) flushMouse();
     });
 
     let touchStartTime = 0;
-    tp.addEventListener('touchstart', () => { touchStartTime = Date.now(); });
+    let lastScrollY = null;
+
     tp.addEventListener('touchend', (e) => {
-      if (Date.now() - touchStartTime < 200) {
+      lastScrollY = null;
+      if (e.touches.length > 0) return; // still have fingers down
+      const elapsed = Date.now() - touchStartTime;
+      if (elapsed < 200) {
         // Fast tap = click
         fetch(serverBase + '/laptop/mouse/click').catch(() => { });
-        // Visual feedback
         tp.style.backgroundColor = 'var(--card)';
         setTimeout(() => tp.style.backgroundColor = 'transparent', 100);
+      } else if (elapsed > 500 && elapsed < 2000) {
+        // Long press = right-click
+        fetch(serverBase + '/laptop/mouse/rightclick').catch(() => { });
+        tp.style.backgroundColor = 'var(--purple)';
+        setTimeout(() => tp.style.backgroundColor = 'transparent', 150);
+        toast('Right-clicked');
       }
     });
 
@@ -1229,10 +1778,43 @@
       } catch (e) { toast('Could not fetch metrics'); }
     }
 
+    // ── Auto-Sync Offline Notes ─────────────────────────
+    async function syncOfflineNotes() {
+      if (!serverBase) return;
+      let drafts = JSON.parse(localStorage.getItem('offlineNotepadQueue') || '[]');
+      if (drafts.length === 0) return;
+
+      let pending = [];
+      for (const draft of drafts) {
+        try {
+          const r = await fetch(serverBase + '/laptop/save-text', {
+            method: 'POST',
+            headers: { 'X-Filepath': draft.filepath },
+            body: new TextEncoder().encode(draft.text),
+            signal: AbortSignal.timeout(10000)
+          });
+          if (!r.ok) pending.push(draft);
+        } catch (e) {
+          pending.push(draft);
+        }
+      }
+
+      localStorage.setItem('offlineNotepadQueue', JSON.stringify(pending));
+
+      if (pending.length < drafts.length) {
+        const synced = drafts.length - pending.length;
+        toast(`✅ Auto-synced ${synced} draft(s) to laptop.`);
+        logTerm(`synced ${synced} offline note(s)`);
+      }
+    }
+
     // ── Call polling (checks server every 5s) ────────────
     function startPoll() {
       clearInterval(pollTimer);
       pollTimer = setInterval(async () => {
+        // Run auto-sync routine
+        syncOfflineNotes();
+
         try {
           const r = await fetch(serverBase + '/call_status', { signal: AbortSignal.timeout(3000) });
           if (!r.ok) return;
